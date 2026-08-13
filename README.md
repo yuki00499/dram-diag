@@ -4,9 +4,7 @@ DRAM 晶圆缺陷 ROI 图像诊断原型。项目目标是对单张缺陷图像�
 
 ## 当前状态
 
-当前版本已经包含数据审计、固定开放集划分、图像预处理、ResNet18 模型封装、原型检索、开放集评分、推理接口和 Gradio 界面骨架。
-
-需要特别注意：当前 `train.py` 仍是训练流程占位入口。它可以执行数据审计和依赖检查，但尚未实现真正的 epoch 训练、checkpoint 保存和模型加载。因此目前可以先完整跑通数据准备流程；安装依赖后，正式训练代码还需要继续补齐。
+当前版本已经包含数据审计、固定开放集划分、图像预处理、ResNet18 模型封装、原型检索、开放集评分、推理接口、Gradio 界面骨架，以及完整的 ResNet18 训练循环（AMP 混合精度、AdamW、验证、最佳 checkpoint 保存）。训练命令可直接产出 `best.pt` 模型文件。
 
 ## 数据目录
 
@@ -74,6 +72,10 @@ pip install -r requirements.txt
 python -c "import gradio; print(gradio.__version__)"
 ```
 
+### 4. 配置文件
+
+默认参数由 `configs/default.yaml` 提供（`data_root`、`image_size`、`seed`、`batch_size`、`epochs`、`lr`、`num_workers`、`model`、`unknown_classes`、`tta`）。`train.py`、`evaluate.py` 会通过 `load_config()` 读取该文件；命令行参数可覆盖其中的默认值。
+
 ## 第一步：运行数据审计
 
 在训练前先执行：
@@ -111,13 +113,7 @@ artifacts/
 
 如果某个类别档位不足，脚本会报错，不会静默改变实验协议。
 
-## 第二步：检查预处理和数据协议
-
-```powershell
-python train.py --data-root "晶圆缺陷分类数据集" --dry-run
-```
-
-这一步目前只做准备工作，不会训练模型。它会重新运行审计并确认数据协议可以生成。
+## 第二步：预处理规则
 
 预处理规则：
 
@@ -125,41 +121,38 @@ python train.py --data-root "晶圆缺陷分类数据集" --dry-run
 - 使用 `320×224` 输入尺寸
 - 使用等比例 letterbox，禁止直接拉伸
 - 保留原图 3:2 比例，避免 224×224 带来的大面积无效边框
+- 按 ImageNet 均值/方差做标准化（`mean=[0.485,0.456,0.406]`，`std=[0.229,0.224,0.225]`）
 
-## 第三步：训练（当前版本说明）
+这些规则由 `src/dram_diag/data.py` 的 `image_array()` 统一实现，训练与推理共用，无需单独验证。
 
-当前代码中的普通训练命令为：
+## 第三步：训练
 
-```powershell
-python train.py --data-root "晶圆缺陷分类数据集" --epochs 20
-```
-
-但当前版本的 `train.py` 还没有真正执行优化循环，因此不会生成 `.pt` 或 `.pth` 模型文件。它会先完成审计，然后检查 PyTorch 是否可导入，并提示训练入口已准备。
-
-真正训练模块完成后，标准操作应为：
-
-```powershell
-python train.py \
-  --data-root "晶圆缺陷分类数据集" \
-  --epochs 20 \
-  --batch-size 32 \
-  --device cuda
-```
-
-Windows PowerShell 如果不使用反引号换行，可以写成一行：
+标准训练命令：
 
 ```powershell
 python train.py --data-root "晶圆缺陷分类数据集" --epochs 20 --batch-size 32 --device cuda
 ```
 
+`train.py` 会先运行数据审计并生成划分，再开始 epoch 训练。可用参数（默认值来自 `configs/default.yaml`）：
+
+| 参数 | 默认 |
+|---|---|
+| `--data-root` | `晶圆缺陷分类数据集` |
+| `--epochs` | `20` |
+| `--batch-size` | `32` |
+| `--lr` | `3e-4` |
+| `--device` | `cuda`（GPU 不可用时自动回退 CPU） |
+| `--out-dir` | `runs/hpod-resnet18` |
+| `--seed` | `42` |
+
+首次训练会自动下载 ResNet18 预训练权重（约 45 MB），缓存到 `~/.cache/torch`，之后无需重复下载。
+
 预期训练产物：
 
 ```text
-runs/<model_version>/
-├── best.pt
-├── config.yaml
-├── metrics.jsonl
-└── training_summary.json
+runs/hpod-resnet18/
+├── best.pt        # 最佳验证准确率 checkpoint（state_dict + class_to_idx + config）
+└── history.json   # 每个 epoch 的 loss / train_acc / val_acc
 ```
 
 8GB 显存建议从以下配置开始：
@@ -207,7 +200,7 @@ http://127.0.0.1:7860
 - 单图上传和诊断结果 JSON
 - 批量导入页面的基础占位
 
-在加载训练好的 checkpoint 之前，界面会显示未训练状态，不能作为实际分类结果使用。后续训练模块完成后，界面将加载模型、原型库和校准阈值，显示类别、置信度、未知分数、Top-5 案例和人工复核标志。
+在接入训练好的 checkpoint 之前，界面会显示未训练状态，不能作为实际分类结果使用。后续接入模型后，界面将加载模型、原型库和校准阈值，显示类别、置信度、未知分数、Top-5 案例和人工复核标志。
 
 ## 结果导出
 
@@ -257,7 +250,7 @@ python -c "import torch; print(torch.__version__); print(torch.version.cuda); pr
 
 ## 当前限制
 
-- 当前训练入口尚未实现完整 epoch 训练和 checkpoint 保存
+- 当前评估模块尚未实现完整的已知/未知类指标与检索指标报告
 - 当前 Gradio 页面尚未接入训练模型和完整批量复核流程
 - 当前没有边界框、分割掩码、wafer/lot 元数据或工艺根因诊断
 - 缺陷族必须经过专家审核，不能由模型自动编造
