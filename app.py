@@ -1,10 +1,12 @@
 from pathlib import Path
 import json
+import sys
+sys.path.insert(0, str(Path(__file__).parent / "src"))
 try:
     import gradio as gr
 except ImportError:
     gr=None
-from src.dram_diag.inference import Predictor
+from dram_diag.inference import Predictor
 
 predictor=Predictor()
 def diagnose(image):

@@ -16,5 +16,9 @@ def letterbox(image, size=(320, 224)):
     canvas.paste(resized, pad); return canvas
 
 def image_array(path, size=(320, 224)):
-    arr = np.asarray(letterbox(Image.open(path), size), dtype=np.float32) / 255.0
-    return np.repeat(arr[None, ...], 3, axis=0)
+    with Image.open(path) as image:
+        arr = np.asarray(letterbox(image, size), dtype=np.float32) / 255.0
+    arr = np.repeat(arr[None, ...], 3, axis=0)
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]
+    return (arr - mean) / std

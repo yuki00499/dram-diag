@@ -15,8 +15,11 @@ def build_split(rows, seed=42):
         if cls in calib_unknown: split["calibration_unknown"] += [{"image_name":x,"defect_id":cls} for x in imgs]; continue
         if cls in test_unknown: split["test_unknown"] += [{"image_name":x,"defect_id":cls} for x in imgs]; continue
         n=len(imgs)
-        if n<3: split["train"] += [{"image_name":x,"defect_id":cls,"review_required":True} for x in imgs]; continue
-        a=max(1,round(n*.7)); b=min(n,a+max(1,round(n*.1))); c=min(n,b+max(1,round(n*.1)))
+        if n<5:
+            split["train"] += [{"image_name":x,"defect_id":cls,"review_required":True} for x in imgs]; continue
+        # Four non-empty partitions are only possible with at least five samples.
+        a=max(2, int(n*.7)); b=a+max(1, int(n*.1)); c=b+max(1, int(n*.1))
+        while c >= n: a -= 1; b -= 1; c -= 1
         for key,part in (("train",imgs[:a]),("validation",imgs[a:b]),("calibration_known",imgs[b:c]),("test_known",imgs[c:])):
             split[key] += [{"image_name":x,"defect_id":cls} for x in part]
     return {"seed":seed,"counts":counts,"high_frequency":high,"mid_frequency":mid,"long_tail":tail,"calibration_unknown":calib_unknown,"test_unknown":test_unknown,"splits":split}

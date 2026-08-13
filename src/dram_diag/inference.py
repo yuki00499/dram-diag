@@ -6,6 +6,8 @@ from .open_set import evidence, classify
 class Predictor:
     def __init__(self, model=None, prototypes=None, threshold=.55, device="cpu", model_version="untrained", family_enabled=False):
         self.model=model; self.prototypes=prototypes; self.threshold=threshold; self.device=device; self.model_version=model_version; self.family_enabled=family_enabled
+        if self.model is not None:
+            self.model.to(self.device)
     def predict(self, path):
         if self.model is None: return {"image_name":Path(path).name,"status":"untrained","review_required":True,"model_version":self.model_version}
         import torch
