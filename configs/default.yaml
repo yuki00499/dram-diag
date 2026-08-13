@@ -1,0 +1,10 @@
+data_root: "晶圆缺陷分类数据集"
+image_size: [320, 224]
+seed: 42
+batch_size: 32
+epochs: 20
+lr: 0.0003
+num_workers: 0
+model: resnet18
+unknown_classes: 5
+tta: false

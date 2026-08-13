@@ -24,6 +24,10 @@ venv/
 *.pt
 wandb/
 runs/
+artifacts/
+configs/local*.yaml
+*.jsonl
+*.csv
 
 .DS_Store
 Thumbs.db
