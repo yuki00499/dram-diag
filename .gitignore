@@ -30,6 +30,8 @@ Thumbs.db
 desktop.ini
 
 data/
+晶圆缺陷分类数据集/
+
 *.jpg
 *.png
 *.tif
