@@ -1,0 +1,20 @@
+experiment: ge20_prototype_005
+data_root: 晶圆缺陷分类数据集
+manifest: artifacts/ge20/split_manifest.json
+out_dir: runs/ge20_prototype_005
+backbone: resnet18
+image_size: [480, 320]
+normalization: imagenet
+loss: ce_proto
+lambda_proto: 0.05
+prototype_margin: 0.2
+classes_per_batch: 7
+samples_per_class: 3
+epochs: 60
+patience: 12
+freeze_epochs: 5
+num_workers: 0
+lr: 0.0003
+backbone_lr: 0.0001
+weight_decay: 0.0001
+seeds: [42]

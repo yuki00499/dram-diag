@@ -1,2 +1,3 @@
-"""HPOD-Classifier components."""
-__version__ = "0.1.0"
+"""DRAM defect classification research toolkit."""
+
+__version__ = "2.0.0"

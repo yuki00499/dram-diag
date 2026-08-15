@@ -1,14 +1,11 @@
 from pathlib import Path
 
-def load_config(path="configs/default.yaml"):
-    try:
-        import yaml
-    except ImportError:
-        return {}
+
+def load_yaml(path):
+    import yaml
+
     config_path = Path(path)
-    if not config_path.is_absolute():
-        config_path = Path(__file__).resolve().parents[2] / config_path
     if not config_path.exists():
-        return {}
-    with config_path.open(encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        raise FileNotFoundError(f"找不到配置文件: {config_path}")
+    with config_path.open(encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
