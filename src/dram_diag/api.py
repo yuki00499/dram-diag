@@ -5,14 +5,14 @@ from pathlib import Path
 
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .calibration import fused_unknown_score, softmax
 from .data import load_labels
 from .inference import ModelRunner
-from .protocol import validate_manifest
+from .protocol import validate_manifest, validate_multilabel_manifest
 from .retrieval import RetrievalIndex
 
 
@@ -38,6 +38,9 @@ class Runtime:
         self.deployment = json.loads(self.deployment_path.read_text(encoding="utf-8"))
         if not self.deployment.get("ready"):
             return
+        if self.deployment.get("task") == "multilabel":
+            self._load_multilabel()
+            return
         self.manifest = validate_manifest(json.loads(Path(self.deployment["manifest"]).read_text(encoding="utf-8")), self.rows)
         self.runner = ModelRunner([item["path"] for item in self.deployment["checkpoints"]], self.manifest, self.data_root)
         _, train_embeddings = self.runner.infer_items(self.manifest["splits"]["train"])
@@ -46,6 +49,28 @@ class Runtime:
             mask = np.asarray([item["defect_id"] == defect_id for item in self.manifest["splits"]["train"]])
             center = train_embeddings[mask].mean(0)
             centers.append(center / np.linalg.norm(center))
+        self.prototypes = np.asarray(centers)
+        records = json.loads(Path(self.deployment["retrieval_records"]).read_text(encoding="utf-8"))
+        embeddings = np.load(self.deployment["retrieval_embeddings"])["embeddings"]
+        self.retrieval = RetrievalIndex(embeddings, records)
+
+    def _load_multilabel(self):
+        self.manifest = validate_multilabel_manifest(json.loads(Path(self.deployment["manifest"]).read_text(encoding="utf-8")))
+        self.runner = ModelRunner([item["path"] for item in self.deployment["checkpoints"]], self.manifest, self.data_root)
+        _, train_embeddings = self.runner.infer_items(self.manifest["splits"]["train"])
+        self.true_labels = {}
+        for split in ("train", "validation", "test_known"):
+            for item in self.manifest["splits"][split]:
+                self.true_labels[item["image_name"]] = sorted(item.get("labels", []))
+        self.labels_by_name = {name: types for name, types in self.true_labels.items()}
+        centers = []
+        for type_id in self.manifest["types"]:
+            mask = np.asarray([type_id in item["labels"] for item in self.manifest["splits"]["train"]])
+            if mask.any():
+                center = train_embeddings[mask].mean(0)
+                centers.append(center / np.linalg.norm(center))
+            else:
+                centers.append(np.zeros(train_embeddings.shape[1]))
         self.prototypes = np.asarray(centers)
         records = json.loads(Path(self.deployment["retrieval_records"]).read_text(encoding="utf-8"))
         embeddings = np.load(self.deployment["retrieval_embeddings"])["embeddings"]
@@ -63,6 +88,8 @@ class Runtime:
             gray = quality_image.convert("L")
             low_quality = min(gray.size) < 32 or ImageStat.Stat(gray).stddev[0] < 2.0
         logits, embeddings = self.runner.infer_paths([path])
+        if self.deployment.get("task") == "multilabel":
+            return self.diagnose_multilabel(logits[0], embeddings[0], image_name, low_quality)
         probabilities = softmax(logits, self.deployment["temperature"])[0]
         score = float(fused_unknown_score(probabilities[None], embeddings, self.prototypes, self.deployment["unknown_alpha"])[0])
         order = np.argsort(probabilities)[::-1][:5]
@@ -81,6 +108,39 @@ class Runtime:
             "model_version": self.deployment["model_version"],
         }
 
+    def diagnose_multilabel(self, logit_vector, embedding, image_name, low_quality=False):
+        import torch
+        import numpy as np
+        types = self.deployment["types"]
+        type_names = self.deployment.get("type_names", {})
+        type_names_full = self.deployment.get("type_names_full", {})
+        threshold = float(self.deployment.get("threshold", .5))
+        probabilities = torch.sigmoid(torch.from_numpy(np.asarray(logit_vector, dtype=np.float32))).numpy()
+        order = np.argsort(probabilities)[::-1]
+        detected = [types[index] for index in order if probabilities[index] >= threshold]
+        candidates = [{
+            "type_id": types[index],
+            "name": type_names.get(str(types[index]), f"类型 {types[index]}"),
+            "confidence": float(probabilities[index]),
+        } for index in order]
+        true_ids = self.true_labels.get(image_name, [])
+        true_labels = [{"type_id": tid, "name": type_names_full.get(str(tid), f"类型 {tid}")} for tid in true_ids]
+        max_prob = float(probabilities[order[0]])
+        status = "low_quality" if low_quality else "known_confident" if detected else "unknown"
+        return {
+            "image_name": image_name,
+            "predicted_types": detected,
+            "true_labels": true_labels,
+            "type_probabilities": {str(types[index]): float(probabilities[index]) for index in order},
+            "confidence": max_prob,
+            "prototype_similarity": float((embedding @ self.prototypes.T).max()),
+            "status": status,
+            "review_required": status != "known_confident",
+            "top5_candidates": candidates,
+            "top5_similar_cases": self.retrieval.search(embedding, 5, image_name),
+            "model_version": self.deployment["model_version"],
+        }
+
 
 def create_app(deployment_path=None):
     app = FastAPI(title="DRAM 缺陷诊断", version="2.0")
@@ -91,13 +151,22 @@ def create_app(deployment_path=None):
         deployment = runtime.deployment or {}
         checkpoint = runtime.runner.checkpoints[0] if runtime.ready else {}
         config = checkpoint.get("config", {})
+        if runtime.manifest and runtime.manifest.get("task") == "multilabel":
+            num_classes = len(runtime.manifest["types"])
+            classification_samples = runtime.manifest["role_stats"]["total_images"]
+        elif runtime.manifest:
+            num_classes = len(runtime.manifest["classification_classes"])
+            classification_samples = runtime.manifest["role_stats"]["classification"]["samples"]
+        else:
+            num_classes, classification_samples = 7, 1148
         return {"ready": runtime.ready, "model_version": deployment.get("model_version"),
-                "protocol_version": deployment.get("protocol_version", "ge20-v2"),
+                "protocol_version": deployment.get("protocol_version", "ge20-ml-v1"),
                 "mode": deployment.get("mode", "not_deployed"),
+                "task": deployment.get("task", "single_label"),
                 "unknown_rejection_enabled": deployment.get("unknown_rejection_enabled", False),
                 "architecture": config.get("backbone", "resnet18"), "input_size": config.get("image_size", [480, 320]),
-                "num_classes": len(runtime.manifest["classification_classes"]) if runtime.manifest else 21,
-                "classification_samples": runtime.manifest["role_stats"]["classification"]["samples"] if runtime.manifest else 523,
+                "num_classes": num_classes,
+                "classification_samples": classification_samples,
                 "total_samples": len(runtime.rows), "device": str(runtime.runner.device) if runtime.ready else "-",
                 "best_val_macro_f1": checkpoint.get("best_metrics", {}).get("validation_macro_f1")}
 
@@ -110,13 +179,31 @@ def create_app(deployment_path=None):
 
     @app.get("/api/model/class-distribution")
     def distribution():
+        if runtime.manifest and runtime.manifest.get("task") == "multilabel":
+            return {"task": "multilabel", "types": runtime.manifest["types"],
+                    "type_counts": runtime.manifest["role_stats"]["types"],
+                    "type_names": runtime.deployment.get("type_names", {}) if runtime.deployment else {},
+                    "classification_classes": [], "case_library_classes": [],
+                    "split_sizes": runtime.manifest["role_stats"]["split_samples"]}
         counts = runtime.manifest["counts"] if runtime.manifest else {}
         splits = runtime.manifest["role_stats"]["split_samples"] if runtime.manifest else {}
-        return {"counts": counts, "classification_classes": runtime.manifest["classification_classes"] if runtime.manifest else [],
+        return {"task": "single_label", "counts": counts,
+                "classification_classes": runtime.manifest["classification_classes"] if runtime.manifest else [],
                 "case_library_classes": runtime.manifest["case_library_classes"] if runtime.manifest else [], "split_sizes": splits}
 
     @app.get("/api/dataset/images")
     def dataset_images(offset: int = 0, limit: int = 40, defect_id: int | None = None, q: str = ""):
+        if runtime.manifest and runtime.manifest.get("task") == "multilabel":
+            full_names = runtime.deployment.get("type_names_full", {})
+            items = []
+            for name in sorted(runtime.true_labels, key=lambda n: int(n.split("_")[1].split(".")[0])):
+                types = [{"type_id": tid, "name": full_names.get(str(tid), f"类型 {tid}")} for tid in runtime.true_labels[name]]
+                if defect_id is not None and not any(item["type_id"] == defect_id for item in types):
+                    continue
+                if q and q.lower() not in name.lower():
+                    continue
+                items.append({"image_name": name, "types": types})
+            return {"total": len(items), "items": items[offset:offset + min(limit, 200)]}
         items = [{"image_name": row["IMAGE_NAME"], "defect_id": int(row["DEFECT_ID"])} for row in runtime.rows]
         if defect_id is not None:
             items = [item for item in items if item["defect_id"] == defect_id]
@@ -128,7 +215,7 @@ def create_app(deployment_path=None):
     def dataset_image(image_name: str):
         if Path(image_name).name != image_name or image_name not in runtime.labels_by_name:
             raise HTTPException(404, "图片不存在")
-        return FileResponse(runtime.data_root / "images" / image_name)
+        return Response(content=(runtime.data_root / "images" / image_name).read_bytes(), media_type="image/jpeg")
 
     @app.post("/api/diagnose/upload")
     async def diagnose_upload(file: UploadFile = File(...)):

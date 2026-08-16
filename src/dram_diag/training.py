@@ -81,7 +81,11 @@ def train_one(config, manifest, seed, output_dir, fold=None):
 
     seed_everything(seed, torch)
     device = torch.device(config.get("device", "cuda") if torch.cuda.is_available() else "cpu")
-    classes = sorted(int(value) for value in manifest["classification_classes"])
+    multilabel = bool(config.get("multilabel", False))
+    if multilabel:
+        classes = sorted(int(value) for value in manifest["types"])
+    else:
+        classes = sorted(int(value) for value in manifest["classification_classes"])
     class_to_idx = {value: index for index, value in enumerate(classes)}
     train_items, validation_items = resolve_split(manifest, fold)
     image_root = Path(config["data_root"]) / "images"
@@ -92,7 +96,14 @@ def train_one(config, manifest, seed, output_dir, fold=None):
         def __init__(self, items, training=False):
             self.items = items
             self.training = training
-            self.labels = [class_to_idx[int(item["defect_id"])] for item in items]
+            if multilabel:
+                matrix = np.zeros((len(items), len(classes)), dtype=np.float32)
+                for i, item in enumerate(items):
+                    for label in item.get("labels", []):
+                        matrix[i, class_to_idx[int(label)]] = 1.0
+                self.labels = matrix
+            else:
+                self.labels = [class_to_idx[int(item["defect_id"])] for item in items]
 
         def __len__(self):
             return len(self.items)
@@ -106,12 +117,14 @@ def train_one(config, manifest, seed, output_dir, fold=None):
                 normalization=config.get("normalization", "imagenet"),
                 stats=stats,
             )
+            if multilabel:
+                return torch.from_numpy(array), torch.from_numpy(self.labels[index])
             return torch.from_numpy(array), self.labels[index]
 
     train_set = RoiDataset(train_items, training=True)
     validation_set = RoiDataset(validation_items)
     loss_name = config.get("loss", "ce")
-    balanced_batches = loss_name in {"ce_proto", "ce_proto_supcon"}
+    balanced_batches = config.get("balanced_sampling", loss_name in {"ce_proto", "ce_proto_supcon"}) and not multilabel
     if balanced_batches:
         classes_per_batch = int(config.get("classes_per_batch", 7))
         samples_per_class = int(config.get("samples_per_class", 3))
@@ -138,13 +151,17 @@ def train_one(config, manifest, seed, output_dir, fold=None):
         {"params": model.encoder.parameters(), "lr": 0 if freeze_epochs else float(config.get("backbone_lr", 1e-4))},
         {"params": head_parameters, "lr": float(config.get("lr", 3e-4))},
     ], weight_decay=float(config.get("weight_decay", 1e-4)))
-    counts = Counter(int(item["defect_id"]) for item in train_items)
-    class_weights = torch.tensor([1 / math.sqrt(counts[key]) for key in classes], dtype=torch.float32)
-    class_weights /= class_weights.mean()
-    criterion = nn.CrossEntropyLoss(
-        weight=class_weights.to(device) if loss_name == "weighted_ce" else None,
-        label_smoothing=float(config.get("label_smoothing", 0)),
-    )
+    counts = Counter(int(item["defect_id"]) for item in train_items) if not multilabel else Counter()
+    class_weights = torch.tensor([1 / math.sqrt(counts[key]) for key in classes], dtype=torch.float32) if counts else None
+    if class_weights is not None:
+        class_weights /= class_weights.mean()
+    if multilabel:
+        criterion = nn.BCEWithLogitsLoss()
+    else:
+        criterion = nn.CrossEntropyLoss(
+            weight=class_weights.to(device) if loss_name == "weighted_ce" else None,
+            label_smoothing=float(config.get("label_smoothing", 0)),
+        )
     scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
     epochs = int(config.get("epochs", 60))
     patience = int(config.get("patience", 12))
@@ -186,7 +203,10 @@ def train_one(config, manifest, seed, output_dir, fold=None):
             scaler.update()
             batch_size = len(labels)
             total += batch_size
-            correct += int((outputs["logits"].argmax(1) == labels).sum().item())
+            if multilabel:
+                correct += int((torch.sigmoid(outputs["logits"]) >= .5).eq(labels.bool()).all(dim=1).sum().item())
+            else:
+                correct += int((outputs["logits"].argmax(1) == labels).sum().item())
             loss_sum += float(loss.item()) * batch_size
             ce_sum += float(ce.item()) * batch_size
             prototype_sum += float(prototype.item()) * batch_size
@@ -200,9 +220,24 @@ def train_one(config, manifest, seed, output_dir, fold=None):
                 images, labels = images.to(device), labels.to(device)
                 logits = model(images)["logits"]
                 validation_loss += float(criterion(logits, labels).item()) * len(labels)
-                y_true.extend(labels.cpu().tolist())
-                y_pred.extend(logits.argmax(1).cpu().tolist())
-        metrics = classification_metrics(y_true, y_pred, list(range(len(classes))))
+                if multilabel:
+                    y_true.append(labels.cpu().numpy())
+                    y_pred.append(torch.sigmoid(logits).cpu().numpy())
+                else:
+                    y_true.extend(labels.cpu().tolist())
+                    y_pred.extend(logits.argmax(1).cpu().tolist())
+        if multilabel:
+            from .metrics import multilabel_metrics
+            ml = multilabel_metrics(np.concatenate(y_true), np.concatenate(y_pred), classes)
+            metrics = {
+                "accuracy": ml["exact_match"],
+                "macro_f1": ml["macro_f1"],
+                "balanced_accuracy": ml["macro_recall"],
+                "exact_match": ml["exact_match"],
+                "macro_recall": ml["macro_recall"],
+            }
+        else:
+            metrics = classification_metrics(y_true, y_pred, list(range(len(classes))))
         row = {
             "epoch": epoch,
             "train_loss": loss_sum / total,

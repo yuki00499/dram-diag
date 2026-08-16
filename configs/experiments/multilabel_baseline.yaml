@@ -1,10 +1,12 @@
-experiment: ge15_coverage_comparison
+experiment: ge20_ml_baseline
 data_root: 晶圆缺陷分类数据集
-manifest: artifacts/ge15/split_manifest.json
-out_dir: runs/ge15_coverage_comparison
+manifest: artifacts/ge20_ml/split_manifest.json
+labels_csv: artifacts/ge20_ml/labels.csv
+out_dir: runs/ge20_ml_baseline
 backbone: resnet18
 image_size: [480, 320]
-normalization: imagenet
+normalization: dataset_gray
+multilabel: true
 loss: ce
 epochs: 60
 patience: 12

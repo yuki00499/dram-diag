@@ -1,14 +1,17 @@
-# DRAM 晶圆缺陷诊断 v2
+# DRAM 晶圆缺陷诊断（多标签版）
 
-本项目按 `ge20-v2` 协议重建，主任务只分类原始样本数 `>=20` 的缺陷类。稳定性和准确性优先，原型约束分类器是主要算法增强，监督对比学习只作为可选实验。`legacy/` 仅作历史参考，不参与运行。
+基于缺陷复查 SEM 图像的**多标签缺陷族分类**项目。原始数据标签经人工复核确认全部错误后，已通过自建标注站重新打标（7 个缺陷族，每图可多选），并重建了完整的多标签训练/评估/部署链路。
 
-当前已冻结的数据结果：21 个分类类、523 张分类候选图；固定划分为训练 379、验证 48、校准已知 48、测试已知 48；另有校准未知 45、核心测试未知 50、压力测试未知 4，以及 78 类/528 张案例库。分类覆盖率应和 Macro-F1 一起报告。
+## 当前状态
 
-> 本轮由 Codex 完成了代码、协议审计和自动化测试，但没有执行任何 smoke 或正式模型训练。以下训练和最终评估命令由项目负责人手动运行。
+- 协议 `ge20-ml-v1`：7 个缺陷族（1 圆形颗粒/异物、2 细长颗粒/异物、3 方形颗粒/异物、4 划痕/裂纹、5 凹坑/空洞、7 块状/块斑类、8 背景/低信号）
+- 数据集：1150 张 480×320 灰度 SEM 复查图，其中 1148 张已标注（2 张未标已排除）
+- 划分：train 918 / validation 115 / test_known 115（按图片随机，无类别互斥）
+- 基线（ResNet18 + dataset_gray + BCE）：**验证 Macro-F1 0.763、Exact-match 83.5%**
 
 ## 1. 环境准备
 
-要求 Windows、PowerShell、Python 3.12。若现有 `.venv` 可用：
+要求 Python 3.12。若现有 `.venv` 可用：
 
 ```powershell
 Set-Location E:\Ai\dram-diag
@@ -19,153 +22,80 @@ python -m pip install -e . --no-build-isolation
 python -m pytest -q
 ```
 
-需要重新创建环境时：
+## 2. 重新打标（需要人工时）
 
 ```powershell
-Set-Location E:\Ai\dram-diag
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -U pip
-python -m pip install -r requirements.txt
-python -m pip install -e . --no-build-isolation
+python scripts\build_multi_label_app.py --detach
 ```
 
-## 2. 数据审计与协议冻结
+- 单图顺序流（image_0 → image_1149），键盘 `1-9` 勾选缺陷族，`Enter`/`→` 下一张
+- 8（背景/低信号）与 9（Unknown）互斥，勾选自动清空其他
+- 进度自动保存（localStorage）；完成后点"导出标注"得到 `label_v2.json`
+- 停止服务：`python scripts\stop_labeling.py`
 
-重新生成主协议清单：
+## 3. 标注转换与协议审计
+
+将标注导出转换为多标签 CSV 并生成冻结 manifest：
 
 ```powershell
-python scripts\audit_dataset.py --data-root 晶圆缺陷分类数据集 --protocol configs\protocols\ge20.yaml --out artifacts\ge20
+python scripts\convert_labels.py --labels label_v2.json --out artifacts\ge20_ml
+python scripts\audit_dataset.py --data-root 晶圆缺陷分类数据集 --protocol configs\protocols\ge20_ml.yaml --labels artifacts\ge20_ml\labels.csv --out artifacts\ge20_ml
 ```
 
-核对 `artifacts/ge20/audit_report.json` 中的固定数字，并人工检查其中 7 组 `perceptual_hash_groups`。它们只是近重复候选，未经人工确认不得删除。正式训练前还需抽查：21 个分类类代表图、容易混淆的类别对，以及恰好 20 张的边界类。人工结论应另存为版本化审查记录；若改标签或删图，必须提升协议版本并重新生成 manifest，旧 checkpoint 随即失效。
+- `convert_labels.py` 会删除未使用的类型、排除未标图片，并输出统计报告（`convert_report.json`）
+- `audit_dataset.py` 校验图片完整性与标签合法性，生成 `split_manifest.json`（含指纹，防篡改）
 
-## 3. Smoke 测试
-
-只验证数据、损失、checkpoint 和加载链路，不用于比较模型：
+## 4. 训练
 
 ```powershell
-python scripts\train.py --config configs\experiments\baseline_imagenet.yaml --epochs 1 --seeds 42 --out-dir runs\smoke\baseline
-python scripts\train.py --config configs\experiments\prototype_005.yaml --epochs 1 --seeds 42 --out-dir runs\smoke\prototype
+# 冒烟测试（1 epoch）
+python scripts\train.py --config configs\experiments\multilabel_baseline.yaml --epochs 1 --seeds 42 --out-dir runs\smoke\multilabel
+
+# 正式基线
+python scripts\train.py --config configs\experiments\multilabel_baseline.yaml --seeds 42
 ```
 
-## 4. 配置筛选：只用 seed 42
+- 模型：ResNet18 预训练 + 冻结 5 epoch 后解冻微调，`BCEWithLogitsLoss` 多标签
+- 归一化：`dataset_gray`（灰度数据自身统计）
+- 选模指标：validation Macro-F1（per-label F1/AUC、exact-match 同步记录在 history）
+- 多 seed：`--seeds 42 43 44`
 
-先独立比较归一化方式，不要同时改变其他因素：
+## 5. 部署到 Web 前端
 
 ```powershell
-python scripts\train.py --config configs\experiments\baseline_imagenet.yaml --seeds 42
-python scripts\train.py --config configs\experiments\baseline_gray.yaml --seeds 42
+python scripts\deploy_multilabel.py --checkpoint runs\ge20_ml_baseline\seed-42\best.pt
+python scripts\serve.py
 ```
 
-冻结较优归一化后，再筛选原型损失权重：
+浏览器访问 `http://127.0.0.1:8000`：
 
-```powershell
-python scripts\train.py --config configs\experiments\prototype_001.yaml --seeds 42
-python scripts\train.py --config configs\experiments\prototype_005.yaml --seeds 42
-python scripts\train.py --config configs\experiments\prototype_010.yaml --seeds 42
-```
+- **概览**：7 缺陷族分布、训练曲线、验证指标
+- **单图诊断**：上传图片 → 各缺陷族概率条 + 检出类型（中文名）+ 相似案例
+- **批量诊断**：缩略图列表（点击放大）→ 批量诊断表格展示**预测类型（中文）与真实标签（英文+中文全名）对照**
 
-每轮最多保留两个候选。仅在稳定基线完成后才运行 SupCon：
-
-```powershell
-python scripts\train.py --config configs\experiments\supcon_optional.yaml --seeds 42
-```
-
-选模只看 validation Macro-F1，并同时检查 Balanced Accuracy、训练/验证差距和最差类别召回。不要读取 calibration 或 test 结果辅助选配置。
-
-## 5. 入围配置：3 seeds
-
-对每个入围配置运行固定划分的 42/43/44 三个 seed。以下用 `prototype_005` 举例：
-
-```powershell
-python scripts\train.py --config configs\experiments\prototype_005.yaml --seeds 42 43 44 --out-dir runs\finalists\prototype_005
-```
-
-根据三 seed 验证均值、标准差和过拟合情况锁定唯一配置，并在查看最终测试前决定使用单模型还是验证阶段已确定的集成。这里不是 5 折 × 3 seeds。
-
-## 6. 最终配置稳定性复核：5 折 × 1 seed
-
-只对唯一最终配置运行 development pool 的 5 折，固定 seed 42：
-
-```powershell
-python scripts\train.py --config configs\experiments\prototype_005.yaml --seeds 42 --folds 0 1 2 3 4 --out-dir runs\stability\prototype_005
-```
-
-5 折只覆盖 `train + validation`，不含校准集、测试集或未知类。若某折 Macro-F1 低于 5 折均值 0.10 以上，仅对该异常折补跑：
-
-```powershell
-python scripts\train.py --config configs\experiments\prototype_005.yaml --seeds 43 44 --folds 2 --out-dir runs\stability_reruns\prototype_005
-```
-
-正常流程总计是“固定划分 3 seeds + 5 folds × seed 42”；异常折才增加 seed 43/44。5 折结果只用于稳定性复核，不允许据此继续调超参数。
-
-## 7. 锁定并执行一次最终评估
-
-先根据验证结果确定 checkpoint 和单模型/集成形式。单模型示例：
-
-```powershell
-python scripts\lock_experiment.py --manifest artifacts\ge20\split_manifest.json --checkpoints runs\finalists\prototype_005\seed-42\best.pt --model-form single --alpha 0.5 --out artifacts\locks\ge20-final-v1.json
-```
-
-三模型集成示例（只有在查看测试结果前已决定集成时才可使用）：
-
-```powershell
-python scripts\lock_experiment.py --manifest artifacts\ge20\split_manifest.json --checkpoints runs\finalists\prototype_005\seed-42\best.pt runs\finalists\prototype_005\seed-43\best.pt runs\finalists\prototype_005\seed-44\best.pt --model-form ensemble --alpha 0.5 --out artifacts\locks\ge20-final-v1.json
-```
-
-确认锁文件后，最终评估只能执行一次：
-
-```powershell
-python scripts\evaluate_final.py --lock artifacts\locks\ge20-final-v1.json --manifest artifacts\ge20\split_manifest.json --out artifacts\reports\ge20-final-v1.json --bootstrap-iterations 2000
-```
-
-脚本用 calibration-known 拟合温度，用 calibration-known 与 calibration-unknown 选择拒识阈值；核心未知和压力未知不参与调参。成功后锁文件会标记 `final_test_consumed=true`，同一锁不能再次消费测试集，已有报告也不能覆盖。
-
-## 8. 晋升与部署
-
-闭集和开放集采用两道独立门槛：
-
-```powershell
-python scripts\promote.py --lock artifacts\locks\ge20-final-v1.json --report artifacts\reports\ge20-final-v1.json --manifest artifacts\ge20\split_manifest.json --out artifacts\deployment.json
-```
-
-可能得到三种模式：
-
-- `classification_with_unknown_rejection`：闭集和开放集均通过，可启用未知拒识。
-- `classification_review_only`：闭集通过、开放集未通过，只部署 21 类候选分类，低置信结果全部复核。
-- `research_only`：闭集未通过，服务不会加载模型进行诊断。
-
-启动服务：
-
-```powershell
-python scripts\serve.py --deployment artifacts\deployment.json --host 127.0.0.1 --port 8000
-```
-
-浏览器访问 `http://127.0.0.1:8000`。界面支持单图、批量、协议与覆盖信息、分类/原型证据、未知状态和相似案例。服务没有可用部署清单时只显示“模型未部署”，不会回退到旧模型。
-
-## 9. `>=15` 覆盖率对照
-
-只有主方案覆盖不足时才运行，不用于替代主协议的默认结论：
-
-```powershell
-python scripts\audit_dataset.py --protocol configs\protocols\ge15.yaml --out artifacts\ge15
-python scripts\train.py --config configs\experiments\ge15_comparison.yaml --seeds 42
-```
-
-仅当 `>=15` 的闭集指标达到主方案门槛、与 `>=20` 的 Macro-F1/Balanced Accuracy 差距均不超过 0.05、最差类召回和未知误接收没有恶化，并确实增加业务必要类别时，才升级为候选。不同协议的 checkpoint、评估报告和部署清单禁止混用。
-
-## 10. 目录说明
+## 6. 目录说明
 
 ```text
-configs/       数据协议和实验配置
-src/dram_diag/ 新的数据、训练、评估、推理与 API 实现
-scripts/       审计、训练、锁定、最终评估、晋升和启动命令
-artifacts/     冻结 manifest、审计、实验锁、报告与部署清单
-runs/          训练输出（不提交大 checkpoint）
-tests/         协议、泄漏、模型、指标和检索测试
-web/           新协议前端
-legacy/        历史项目归档，仅供参考
+configs/protocols/ge20_ml.yaml    多标签协议（类型清单、划分参数）
+configs/experiments/              训练配置
+src/dram_diag/                    数据、协议、训练、推理、API 实现
+scripts/build_multi_label_app.py  多标签标注站
+scripts/convert_labels.py         标注 JSON → 多标签 CSV
+scripts/audit_dataset.py          审计 + 生成 manifest
+scripts/train.py                  训练入口
+scripts/deploy_multilabel.py      生成部署清单（含检索索引）
+scripts/serve.py                  FastAPI + Web 前端
+artifacts/ge20_ml/                labels.csv、manifest、审计报告
+artifacts/labeling/               标注站静态文件（data.json/index.html）
+artifacts/deployment.json         部署清单
+runs/                             训练产物（不提交）
+legacy/                           历史项目归档，仅供参考
 ```
 
-详细设计和验收门槛见 `项目方案/PLAN.md`。
+## 常见问题
+
+- **批量诊断里图片"不存在"**：该图为未标注被排除的图（如 image_824/895），属正常
+- **重新打标后如何更新**：重新导出 `label_v2.json` → 重跑第 3 步（指纹变化自动使旧 manifest 失效）→ 重训
+- **调整阈值**：`deploy_multilabel.py --threshold 0.5`（检出判定线，可调）
+
+详细设计见 `项目方案/PLAN.md`（历史方案文档，含评审记录）。

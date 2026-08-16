@@ -221,8 +221,12 @@ input[type="search"]:focus, select:focus { border-color: var(--accent); box-shad
 .pick-item:last-child { border-bottom: none; }
 .pick-item:hover { background: #f0f2f4; }
 .pick-item input { accent-color: var(--accent); }
+.pick-item .pick-thumb { width: 52px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid var(--hairline); background: #e8eaed; cursor: zoom-in; }
 .pick-item .nm { font-family: var(--mono); font-size: 12.5px; }
 .pick-item .did { color: var(--muted); font-size: 12px; margin-left: auto; font-family: var(--mono); }
+.batch-thumb { width: 64px; height: 44px; object-fit: cover; border-radius: 4px; border: 1px solid var(--hairline); background: #e8eaed; cursor: zoom-in; vertical-align: middle; }
+.cell-name { margin-left: 8px; font-family: var(--mono); font-size: 12px; }
+table td { vertical-align: middle; }
 .batch-actions { margin-top: 14px; display: flex; justify-content: flex-end; }
 
 .result-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }

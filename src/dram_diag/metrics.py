@@ -3,6 +3,40 @@ from sklearn.metrics import (accuracy_score, average_precision_score, confusion_
                              f1_score, recall_score, roc_auc_score, roc_curve)
 
 
+def multilabel_metrics(y_true, probabilities, labels, threshold=.5):
+    """多标签评估：per-label F1/AUC、macro-F1、完全匹配率、Hamming 损失。
+
+    y_true: (n, k) 0/1 矩阵；probabilities: (n, k) sigmoid 概率；labels: 类型 id 列表。
+    """
+    y_true = np.asarray(y_true)
+    probabilities = np.asarray(probabilities)
+    if y_true.shape[1] != probabilities.shape[1]:
+        raise ValueError("标签与概率的维度不一致")
+    predictions = (probabilities >= threshold).astype(int)
+    per_label_f1 = f1_score(y_true, predictions, labels=range(y_true.shape[1]), average=None, zero_division=0)
+    per_label_auc = []
+    for column in range(y_true.shape[1]):
+        if len(np.unique(y_true[:, column])) < 2:
+            per_label_auc.append(float("nan"))
+        else:
+            per_label_auc.append(float(roc_auc_score(y_true[:, column], probabilities[:, column])))
+    exact_match = float(np.mean((predictions == y_true).all(axis=1)))
+    hamming = float(np.mean(predictions != y_true))
+    macro_f1 = float(np.nanmean(per_label_f1))
+    micro_f1 = float(f1_score(y_true, predictions, average="micro", zero_division=0))
+    macro_recall = float(recall_score(y_true, predictions, average="macro", zero_division=0))
+    return {
+        "macro_f1": macro_f1,
+        "micro_f1": micro_f1,
+        "macro_recall": macro_recall,
+        "exact_match": exact_match,
+        "hamming_loss": hamming,
+        "per_label_f1": {str(label): float(value) for label, value in zip(labels, per_label_f1)},
+        "per_label_auc": {str(label): value for label, value in zip(labels, per_label_auc)},
+        "support": {str(label): int(y_true[:, column].sum()) for column, label in enumerate(labels)},
+    }
+
+
 def expected_calibration_error(y_true, probabilities, bins=15):
     confidence = probabilities.max(axis=1)
     prediction = probabilities.argmax(axis=1)
