@@ -1,7 +1,7 @@
 """将标注站导出的 label_v2.json 转换为多标签 CSV，并生成统计报告。
 
 用法:
-    python scripts/convert_labels.py --labels label_v2.json --out artifacts/ge20_ml
+    python scripts/convert_labels.py --labels label_v2.json --out artifacts/dram_ml_v2
 """
 
 import argparse
@@ -22,7 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description="转换多标签标注为 CSV")
     parser.add_argument("--labels", default="label_v2.json")
     parser.add_argument("--data-root", default="晶圆缺陷分类数据集")
-    parser.add_argument("--out", default="artifacts/ge20_ml")
+    parser.add_argument("--out", default="artifacts/dram_ml_v2")
     args = parser.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

@@ -1,101 +1,94 @@
-# DRAM 晶圆缺陷诊断（多标签版）
+# DRAM 晶圆缺陷诊断：可靠长尾多标签识别
 
-基于缺陷复查 SEM 图像的**多标签缺陷族分类**项目。原始数据标签经人工复核确认全部错误后，已通过自建标注站重新打标（7 个缺陷族，每图可多选），并重建了完整的多标签训练/评估/部署链路。
+基于 1148 张人工复核 SEM 图像的 7 类多标签缺陷属性识别项目。当前主协议为 `dram-ml-v2`，以核心标签 `2/3/4/5` 的 Macro-F1 为主指标，标签 `1/7/8` 作为少样本探索结果单独报告。
 
-## 当前状态
+## 1. 环境与测试
 
-- 协议 `ge20-ml-v1`：7 个缺陷族（1 圆形颗粒/异物、2 细长颗粒/异物、3 方形颗粒/异物、4 划痕/裂纹、5 凹坑/空洞、7 块状/块斑类、8 背景/低信号）
-- 数据集：1150 张 480×320 灰度 SEM 复查图，其中 1148 张已标注（2 张未标已排除）
-- 划分：train 918 / validation 115 / test_known 115（按图片随机，无类别互斥）
-- 基线（ResNet18 + dataset_gray + BCE）：**验证 Macro-F1 0.763、Exact-match 83.5%**
-
-## 1. 环境准备
-
-要求 Python 3.12。若现有 `.venv` 可用：
+要求 Python 3.12：
 
 ```powershell
 Set-Location E:\Ai\dram-diag
 .\.venv\Scripts\Activate.ps1
-python -m pip install -U pip
 python -m pip install -r requirements.txt
 python -m pip install -e . --no-build-isolation
 python -m pytest -q
 ```
 
-## 2. 重新打标（需要人工时）
+## 2. 冻结数据协议
 
 ```powershell
-python scripts\build_multi_label_app.py --detach
+python scripts\convert_labels.py --labels label_v2.json --out artifacts\dram_ml_v2
+python scripts\audit_dataset.py `
+  --protocol configs\protocols\dram_ml_v2.yaml `
+  --labels artifacts\dram_ml_v2\labels.csv `
+  --source-labels label_v2.json `
+  --out artifacts\dram_ml_v2
 ```
 
-- 单图顺序流（image_0 → image_1149），键盘 `1-9` 勾选缺陷族，`Enter`/`→` 下一张
-- 8（背景/低信号）与 9（Unknown）互斥，勾选自动清空其他
-- 进度自动保存（localStorage）；完成后点"导出标注"得到 `label_v2.json`
-- 停止服务：`python scripts\stop_labeling.py`
+协议锁定 115 张最终测试图，其余 1033 张组成 development，并生成 5 个迭代多标签分层折。审计同时输出标签支持度、组合频率、共现矩阵、每折覆盖、重复图像、低质量图、标注哈希和代码版本。
 
-## 3. 标注转换与协议审计
+## 3. 正式训练
 
-将标注导出转换为多标签 CSV 并生成冻结 manifest：
+按固定顺序运行三个候选。每个配置默认训练 5 折并生成 OOF 概率、逐标签阈值、阈值 bootstrap、折间波动和核心 Macro-F1 置信区间。
 
 ```powershell
-python scripts\convert_labels.py --labels label_v2.json --out artifacts\ge20_ml
-python scripts\audit_dataset.py --data-root 晶圆缺陷分类数据集 --protocol configs\protocols\ge20_ml.yaml --labels artifacts\ge20_ml\labels.csv --out artifacts\ge20_ml
+python scripts\train.py --config configs\experiments\dram_ml_v2_bce.yaml
+python scripts\train.py --config configs\experiments\dram_ml_v2_weighted.yaml
+python scripts\train.py --config configs\experiments\dram_ml_v2_graph.yaml
 ```
 
-- `convert_labels.py` 会删除未使用的类型、排除未标图片，并输出统计报告（`convert_report.json`）
-- `audit_dataset.py` 校验图片完整性与标签合法性，生成 `split_manifest.json`（含指纹，防篡改）
-
-## 4. 训练
+快速检查共现图链路：
 
 ```powershell
-# 冒烟测试（1 epoch）
-python scripts\train.py --config configs\experiments\multilabel_baseline.yaml --epochs 1 --seeds 42 --out-dir runs\smoke\multilabel
-
-# 正式基线
-python scripts\train.py --config configs\experiments\multilabel_baseline.yaml --seeds 42
+python scripts\train.py `
+  --config configs\experiments\dram_ml_v2_graph.yaml `
+  --epochs 1 --folds 0 --seeds 42 `
+  --out-dir runs\smoke\dram_ml_v2_graph
 ```
 
-- 模型：ResNet18 预训练 + 冻结 5 epoch 后解冻微调，`BCEWithLogitsLoss` 多标签
-- 归一化：`dataset_gray`（灰度数据自身统计）
-- 选模指标：validation Macro-F1（per-label F1/AUC、exact-match 同步记录在 history）
-- 多 seed：`--seeds 42 43 44`
+三种模型分别是：
 
-## 5. 部署到 Web 前端
+- `bce`：普通 ResNet18 + BCE。
+- `weighted_bce`：按训练折统计正样本，使用平方根缩放且上限为 5 的 `pos_weight`。
+- `graph_bce`：在长尾加权模型上加入训练折共现图残差，只保留支持数不少于 5 的关系。
+
+## 4. 模型选择与锁定测试
 
 ```powershell
-python scripts\deploy_multilabel.py --checkpoint runs\ge20_ml_baseline\seed-42\best.pt
-python scripts\serve.py
+python scripts\select_multilabel_model.py
+python scripts\evaluate_multilabel_test.py
+python scripts\render_competition_report.py
 ```
 
-浏览器访问 `http://127.0.0.1:8000`：
+选择工具只在共现图模型的核心 Macro-F1 不低于长尾基线，且核心或共现组合 F1 至少提升 0.005 时保留创新模型，否则自动回退到 `weighted_bce`。
 
-- **概览**：7 缺陷族分布、训练曲线、验证指标
-- **单图诊断**：上传图片 → 各缺陷族概率条 + 检出类型（中文名）+ 相似案例
-- **批量诊断**：缩略图列表（点击放大）→ 批量诊断表格展示**预测类型（中文）与真实标签（英文+中文全名）对照**
+`evaluate_multilabel_test.py` 会验证 checkpoint 哈希，并拒绝覆盖已有测试报告。只有模型结构、阈值和集成规则完全锁定后才能执行；该命令会正式消费最终测试集，不应用于调参。
 
-## 6. 目录说明
+报告渲染器会生成标签共现热力图、三模型 OOF 对比图和最终测试 PR 曲线；测试报告同时保存典型成功与失败案例清单。
 
-```text
-configs/protocols/ge20_ml.yaml    多标签协议（类型清单、划分参数）
-configs/experiments/              训练配置
-src/dram_diag/                    数据、协议、训练、推理、API 实现
-scripts/build_multi_label_app.py  多标签标注站
-scripts/convert_labels.py         标注 JSON → 多标签 CSV
-scripts/audit_dataset.py          审计 + 生成 manifest
-scripts/train.py                  训练入口
-scripts/deploy_multilabel.py      生成部署清单（含检索索引）
-scripts/serve.py                  FastAPI + Web 前端
-artifacts/ge20_ml/                labels.csv、manifest、审计报告
-artifacts/labeling/               标注站静态文件（data.json/index.html）
-artifacts/deployment.json         部署清单
-runs/                             训练产物（不提交）
-legacy/                           历史项目归档，仅供参考
+## 5. 部署前端服务
+
+```powershell
+python scripts\deploy_multilabel.py `
+  --selection artifacts\dram_ml_v2\model_selection.json `
+  --out artifacts\deployment-v2.json
+python scripts\serve.py --port 8010
 ```
 
-## 常见问题
+服务启动在 `http://127.0.0.1:8010`（默认端口已改为 8010，默认加载 `artifacts\deployment-v2.json`）。也可用环境变量方式启动：
 
-- **批量诊断里图片"不存在"**：该图为未标注被排除的图（如 image_824/895），属正常
-- **重新打标后如何更新**：重新导出 `label_v2.json` → 重跑第 3 步（指纹变化自动使旧 manifest 失效）→ 重训
-- **调整阈值**：`deploy_multilabel.py --threshold 0.5`（检出判定线，可调）
+```powershell
+$env:DRAM_DEPLOYMENT = "artifacts/deployment-v2.json"
+python scripts\serve.py --port 8010
+```
 
-详细设计见 `项目方案/PLAN.md`（历史方案文档，含评审记录）。
+前端为四页单页应用（`web/`，Modern Minimalist 设计）：
+
+- **数据概览**：协议信息、缺陷族分布、数据划分与缺陷族清单
+- **模型评估**：OOF 指标（Macro-F1、Sample-F1、mAP、Exact Match、Hamming）、训练曲线、逐类型混淆统计、PR 曲线、组合指标、折间稳定性与阈值稳定性
+- **单图诊断**：数据集选图（按集合浏览/搜索）或上传 SEM 图像 → 逐标签阈值检出、状态徽章（可信/置信偏低/无检出/质量不足）、真实标签对照、相似案例
+- **批量诊断**：数据集抽样（服务端种子抽样）或批量上传 → 结果表（预测 vs 真实标签对照）、筛选（类型/需复核/文件名）、CSV 导出
+
+部署清单支持 5 折集成与逐标签阈值，模型接口额外返回 `thresholds` 与 `review_margin`。
+
+详细设计见 `项目方案/PLAN.md`。正式 v2 模型训练完成后，将旧的运行时 fallback 产物替换为模型选择清单指定的5折模型。

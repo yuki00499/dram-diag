@@ -4,24 +4,78 @@ import json
 import random
 
 
-SPLIT_NAMES = (
-    "train",
-    "validation",
-    "calibration_known",
-    "test_known",
-    "calibration_unknown",
-    "test_unknown_core",
-    "test_unknown_stress",
-    "case_library",
-)
-
-MULTILABEL_SPLIT_NAMES = ("train", "validation", "test_known")
+DEPLOYMENT_SPLIT_NAMES = ("train", "validation", "test_known")
 
 
-def dataset_fingerprint(rows):
-    records = sorted((row["IMAGE_NAME"], int(row["DEFECT_ID"])) for row in rows)
-    payload = json.dumps(records, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+def _label_features(items, types, tracked_pairs):
+    """Return binary label and selected co-occurrence features for stratification."""
+    features = []
+    for item in items:
+        labels = set(item["labels"])
+        features.append(
+            [int(value in labels) for value in types]
+            + [int(left in labels and right in labels) for left, right in tracked_pairs]
+        )
+    return features
+
+
+def _iterative_partition(items, feature_rows, sizes, seed):
+    """Deterministic iterative multi-label stratification without an extra dependency."""
+    if sum(sizes) != len(items) or any(size < 0 for size in sizes):
+        raise ValueError("分层目标容量与样本数不一致")
+    rng = random.Random(seed)
+    feature_count = len(feature_rows[0]) if feature_rows else 0
+    totals = [sum(row[column] for row in feature_rows) for column in range(feature_count)]
+    desired = [[total * size / max(1, len(items)) for total in totals] for size in sizes]
+    remaining_size = list(sizes)
+    partitions = [[] for _ in sizes]
+    unassigned = set(range(len(items)))
+
+    while unassigned:
+        remaining_counts = [sum(feature_rows[index][column] for index in unassigned)
+                            for column in range(feature_count)]
+        active = [column for column, count in enumerate(remaining_counts) if count > 0]
+        if active:
+            rarest = min(active, key=lambda column: (remaining_counts[column], column))
+            candidates = [index for index in unassigned if feature_rows[index][rarest]]
+        else:
+            candidates = list(unassigned)
+        rng.shuffle(candidates)
+        for index in candidates:
+            if index not in unassigned:
+                continue
+            available = [fold for fold, capacity in enumerate(remaining_size) if capacity > 0]
+            if not available:
+                raise ValueError("多标签分层分配失败：没有剩余容量")
+            if active:
+                best_feature = max(desired[fold][rarest] for fold in available)
+                available = [fold for fold in available if abs(desired[fold][rarest] - best_feature) < 1e-12]
+            best_size = max(remaining_size[fold] for fold in available)
+            available = [fold for fold in available if remaining_size[fold] == best_size]
+            chosen = rng.choice(available)
+            partitions[chosen].append(items[index])
+            remaining_size[chosen] -= 1
+            for column, present in enumerate(feature_rows[index]):
+                if present:
+                    desired[chosen][column] -= 1
+            unassigned.remove(index)
+    return partitions
+
+
+def _multilabel_counts(items, types):
+    return {str(type_id): sum(type_id in item["labels"] for item in items) for type_id in types}
+
+
+def _combination_counts(items):
+    counts = defaultdict(int)
+    for item in items:
+        counts[",".join(str(value) for value in item["labels"])] += 1
+    return dict(sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])))
+
+
+def _cooccurrence_matrix(items, types):
+    return [[sum(left in item["labels"] and right in item["labels"] for item in items)
+             for right in types] for left in types]
 
 
 def multilabel_dataset_fingerprint(rows):
@@ -37,157 +91,8 @@ def manifest_fingerprint(manifest):
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def _held_out_count(size, ratio):
-    held_out = max(1, round(size * ratio))
-    while 3 * held_out >= size:
-        held_out -= 1
-    if held_out < 1:
-        raise ValueError(f"类别样本数 {size} 无法按留出比例 {ratio} 划分")
-    return held_out
-
-
-def _build_cv_folds(development_items, folds, seed):
-    by_class = defaultdict(list)
-    for item in development_items:
-        by_class[int(item["defect_id"])].append(item)
-    result = [[] for _ in range(folds)]
-    for defect_id in sorted(by_class):
-        items = list(by_class[defect_id])
-        random.Random(seed + defect_id).shuffle(items)
-        for index, item in enumerate(items):
-            result[index % folds].append(item)
-    return [{"fold": index, "validation": items} for index, items in enumerate(result)]
-
-
-def validate_manifest(manifest, rows=None):
-    if manifest.get("manifest_fingerprint") != manifest_fingerprint(manifest):
-        raise ValueError("manifest 指纹不匹配，文件可能已被修改")
-    if rows is not None and manifest["dataset_fingerprint"] != dataset_fingerprint(rows):
-        raise ValueError("manifest 与当前 label.csv 不匹配")
-
-    roles = [
-        set(manifest["classification_classes"]),
-        set(manifest["case_library_classes"]),
-        set(manifest["calibration_unknown_classes"]),
-        set(manifest["test_unknown_core_classes"]),
-        set(manifest["test_unknown_stress_classes"]),
-    ]
-    for index, left in enumerate(roles):
-        for right in roles[index + 1:]:
-            if left & right:
-                raise ValueError(f"类别角色重叠: {sorted(left & right)}")
-    expected_classes = {int(value) for value in manifest["counts"]}
-    if set().union(*roles) != expected_classes:
-        raise ValueError("类别角色未覆盖全部类别")
-
-    names = [item["image_name"] for split in manifest["splits"].values() for item in split]
-    if len(names) != len(set(names)):
-        raise ValueError("数据 split 中存在重复图片")
-    if len(names) != sum(int(value) for value in manifest["counts"].values()):
-        raise ValueError("数据 split 未覆盖全部图片")
-
-    development_names = {
-        item["image_name"]
-        for split in ("train", "validation")
-        for item in manifest["splits"][split]
-    }
-    fold_names = [
-        item["image_name"]
-        for fold in manifest["cv_folds"]
-        for item in fold["validation"]
-    ]
-    if set(fold_names) != development_names or len(fold_names) != len(set(fold_names)):
-        raise ValueError("5折索引未恰好覆盖 development pool")
-    return manifest
-
-
-def build_manifest(rows, protocol):
-    seed = int(protocol.get("split_seed", 42))
-    threshold = int(protocol["min_class_count"])
-    ratio = float(protocol.get("holdout_ratio", .1))
-    folds = int(protocol.get("cv_folds", 5))
-    unknown = protocol["unknown_classes"]
-    calibration_unknown = [int(value) for value in unknown["calibration"]]
-    test_unknown_core = [int(value) for value in unknown["test_core"]]
-    test_unknown_stress = [int(value) for value in unknown["test_stress"]]
-    all_unknown = set(calibration_unknown + test_unknown_core + test_unknown_stress)
-
-    by_class = defaultdict(list)
-    for row in rows:
-        by_class[int(row["DEFECT_ID"])].append(row["IMAGE_NAME"])
-    counts = {key: len(value) for key, value in by_class.items()}
-    missing_unknown = all_unknown - set(counts)
-    if missing_unknown:
-        raise ValueError(f"未知类不存在: {sorted(missing_unknown)}")
-    min_unknown = int(protocol.get("min_core_unknown_count", 8))
-    if any(counts[key] < min_unknown for key in test_unknown_core):
-        raise ValueError("核心测试未知类存在样本数不足的类别")
-
-    known = sorted(set(counts) - all_unknown)
-    classification_classes = [key for key in known if counts[key] >= threshold]
-    case_library_classes = [key for key in known if counts[key] < threshold]
-    splits = {name: [] for name in SPLIT_NAMES}
-    rng = random.Random(seed)
-
-    for defect_id in sorted(by_class):
-        images = list(by_class[defect_id])
-        rng.shuffle(images)
-        items = [{"image_name": name, "defect_id": defect_id} for name in images]
-        if defect_id in calibration_unknown:
-            splits["calibration_unknown"].extend(items)
-        elif defect_id in test_unknown_core:
-            splits["test_unknown_core"].extend(items)
-        elif defect_id in test_unknown_stress:
-            splits["test_unknown_stress"].extend(items)
-        elif defect_id in case_library_classes:
-            splits["case_library"].extend({**item, "review_required": True} for item in items)
-        else:
-            held_out = _held_out_count(len(items), ratio)
-            train_end = len(items) - 3 * held_out
-            validation_end = train_end + held_out
-            calibration_end = validation_end + held_out
-            splits["train"].extend(items[:train_end])
-            splits["validation"].extend(items[train_end:validation_end])
-            splits["calibration_known"].extend(items[validation_end:calibration_end])
-            splits["test_known"].extend(items[calibration_end:])
-
-    development = splits["train"] + splits["validation"]
-    cv_folds = _build_cv_folds(development, folds, seed)
-    role_stats = {
-        "classification": {"classes": len(classification_classes), "samples": sum(counts[key] for key in classification_classes)},
-        "case_library": {"classes": len(case_library_classes), "samples": sum(counts[key] for key in case_library_classes)},
-        "unknown": {
-            "calibration": {"classes": len(calibration_unknown), "samples": sum(counts[key] for key in calibration_unknown)},
-            "test_core": {"classes": len(test_unknown_core), "samples": sum(counts[key] for key in test_unknown_core)},
-            "test_stress": {"classes": len(test_unknown_stress), "samples": sum(counts[key] for key in test_unknown_stress)},
-        },
-        "split_samples": {name: len(items) for name, items in splits.items()},
-    }
-    manifest = {
-        "protocol_version": protocol["protocol_version"],
-        "min_class_count": threshold,
-        "holdout_ratio": ratio,
-        "split_seed": seed,
-        "dataset_fingerprint": dataset_fingerprint(rows),
-        "counts": counts,
-        "classification_classes": classification_classes,
-        "case_library_classes": case_library_classes,
-        "calibration_unknown_classes": calibration_unknown,
-        "test_unknown_core_classes": test_unknown_core,
-        "test_unknown_stress_classes": test_unknown_stress,
-        "role_stats": role_stats,
-        "splits": splits,
-        "cv_folds": cv_folds,
-    }
-    manifest["manifest_fingerprint"] = manifest_fingerprint(manifest)
-    return validate_manifest(manifest, rows)
-
-
 def build_multilabel_manifest(rows, protocol):
-    """多标签协议：按图片随机划分 train/validation/test_known，无类别互斥。
-
-    rows: [{"IMAGE_NAME": ..., "LABELS": "1,2"}]（labels.csv 的 DictReader 行）。
-    """
+    """构建锁定测试集和迭代多标签分层交叉验证协议。"""
     seed = int(protocol.get("split_seed", 42))
     ratio = float(protocol.get("holdout_ratio", .1))
     types = sorted(int(value) for value in protocol["types"])
@@ -201,14 +106,24 @@ def build_multilabel_manifest(rows, protocol):
     names = [item["image_name"] for item in items]
     if len(names) != len(set(names)):
         raise ValueError("存在重复图片")
-    rng = random.Random(seed)
-    rng.shuffle(items)
-    held = max(1, round(len(items) * ratio))
-    splits = {
-        "train": items[:-2 * held] if len(items) > 3 * held else items[:len(items) // 2],
-        "validation": items[len(items) - 2 * held:len(items) - held] if len(items) > 3 * held else items[len(items) // 2:3 * len(items) // 4],
-        "test_known": items[len(items) - held:] if len(items) > 3 * held else items[3 * len(items) // 4:],
-    }
+    folds = int(protocol.get("cv_folds", 0))
+    tracked_pairs = [tuple(sorted(int(value) for value in pair)) for pair in protocol.get("tracked_pairs", [])]
+    if folds < 2:
+        raise ValueError("dram-ml-v2 至少需要2折交叉验证")
+    test_size = max(1, round(len(items) * ratio))
+    features = _label_features(items, types, tracked_pairs)
+    development, test_known = _iterative_partition(
+        items, features, [len(items) - test_size, test_size], seed)
+    development_features = _label_features(development, types, tracked_pairs)
+    base, extra = divmod(len(development), folds)
+    fold_sizes = [base + int(index < extra) for index in range(folds)]
+    validation_folds = _iterative_partition(development, development_features, fold_sizes, seed + 1)
+    cv_folds = []
+    for fold, validation in enumerate(validation_folds):
+        validation_names = {item["image_name"] for item in validation}
+        train = [item for item in development if item["image_name"] not in validation_names]
+        cv_folds.append({"fold": fold, "train": train, "validation": validation})
+    splits = {"development": development, "test_known": test_known}
     counts = {str(tid): 0 for tid in types}
     for item in items:
         for label in item["labels"]:
@@ -221,8 +136,22 @@ def build_multilabel_manifest(rows, protocol):
         "holdout_ratio": ratio,
         "split_seed": seed,
         "dataset_fingerprint": multilabel_dataset_fingerprint(rows),
-        "role_stats": {"types": counts, "split_samples": split_samples, "total_images": len(items)},
+        "label_file_sha256": protocol.get("label_file_sha256"),
+        "code_version": protocol.get("code_version", "unknown"),
+        "code_fingerprint": protocol.get("code_fingerprint"),
+        "core_types": sorted(int(value) for value in protocol.get("core_types", types)),
+        "rare_types": sorted(int(value) for value in protocol.get("rare_types", [])),
+        "tracked_pairs": [list(pair) for pair in tracked_pairs],
+        "role_stats": {
+            "types": counts,
+            "label_combinations": _combination_counts(items),
+            "cooccurrence_matrix": _cooccurrence_matrix(items, types),
+            "split_samples": split_samples,
+            "split_type_counts": {name: _multilabel_counts(values, types) for name, values in splits.items()},
+            "total_images": len(items),
+        },
         "splits": splits,
+        "cv_folds": cv_folds,
     }
     manifest["manifest_fingerprint"] = manifest_fingerprint(manifest)
     return validate_multilabel_manifest(manifest, rows)
@@ -235,7 +164,21 @@ def validate_multilabel_manifest(manifest, rows=None):
         raise ValueError("manifest 指纹不匹配，文件可能已被修改")
     if rows is not None and manifest["dataset_fingerprint"] != multilabel_dataset_fingerprint(rows):
         raise ValueError("manifest 与当前 labels.csv 不匹配")
-    names = [item["image_name"] for split in MULTILABEL_SPLIT_NAMES for item in manifest["splits"].get(split, [])]
+    if manifest.get("cv_folds"):
+        names = [item["image_name"] for split in ("development", "test_known")
+                 for item in manifest["splits"].get(split, [])]
+        development_names = {item["image_name"] for item in manifest["splits"]["development"]}
+        fold_validation = [item["image_name"] for fold in manifest["cv_folds"] for item in fold["validation"]]
+        if set(fold_validation) != development_names or len(fold_validation) != len(set(fold_validation)):
+            raise ValueError("交叉验证折未恰好覆盖 development")
+        for fold in manifest["cv_folds"]:
+            train_names = {item["image_name"] for item in fold["train"]}
+            validation_names = {item["image_name"] for item in fold["validation"]}
+            if train_names & validation_names or train_names | validation_names != development_names:
+                raise ValueError(f"fold {fold['fold']} 存在泄漏或覆盖不完整")
+    else:
+        names = [item["image_name"] for split in DEPLOYMENT_SPLIT_NAMES
+                 for item in manifest["splits"].get(split, [])]
     if len(names) != len(set(names)):
         raise ValueError("数据 split 中存在重复图片")
     if len(names) != manifest["role_stats"]["total_images"]:

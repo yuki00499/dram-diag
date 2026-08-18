@@ -15,10 +15,9 @@ def validate_checkpoint(checkpoint, manifest):
         raise ValueError("checkpoint 与 manifest 的协议版本不一致")
     if checkpoint.get("manifest_fingerprint") != manifest["manifest_fingerprint"]:
         raise ValueError("checkpoint 与 manifest 指纹不一致")
-    classes = manifest.get("types") if manifest.get("task") == "multilabel" else manifest.get("classification_classes", [])
+    classes = manifest.get("types", [])
     expected = {int(value): index for index, value in enumerate(sorted(classes))}
     actual = {int(key): int(value) for key, value in checkpoint.get("class_to_idx", {}).items()}
     if actual != expected:
         raise ValueError("checkpoint 类别映射与 manifest 不一致")
     return checkpoint
-

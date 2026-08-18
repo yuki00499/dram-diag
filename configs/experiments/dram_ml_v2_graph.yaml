@@ -1,0 +1,25 @@
+experiment: dram_ml_v2_graph
+data_root: 晶圆缺陷分类数据集
+manifest: artifacts/dram_ml_v2/split_manifest.json
+labels_csv: artifacts/dram_ml_v2/labels.csv
+out_dir: runs/dram_ml_v2_graph
+backbone: resnet18
+image_size: [480, 320]
+normalization: dataset_gray
+multilabel: true
+loss: graph_bce
+pos_weight_cap: 5.0
+graph_min_support: 5
+graph_alpha_init: 0.1
+epochs: 60
+patience: 12
+freeze_epochs: 5
+batch_size: 8
+num_workers: 0
+lr: 0.0003
+backbone_lr: 0.0001
+weight_decay: 0.0001
+seeds: [42]
+folds: [0, 1, 2, 3, 4]
+threshold_bootstrap_iterations: 500
+metric_bootstrap_iterations: 2000

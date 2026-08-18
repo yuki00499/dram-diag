@@ -16,6 +16,7 @@ def test_gray_stats_reports_training_only():
 
 
 def test_cv_resolution_never_adds_holdouts():
-    manifest = {"splits": {"train": [{"image_name": "a"}], "validation": [{"image_name": "b"}], "test_known": [{"image_name": "c"}]}, "cv_folds": [{"fold": 0, "validation": [{"image_name": "b"}]}]}
+    manifest = {"splits": {"development": [{"image_name": "a"}, {"image_name": "b"}], "test_known": [{"image_name": "c"}]},
+                "cv_folds": [{"fold": 0, "train": [{"image_name": "a"}], "validation": [{"image_name": "b"}]}]}
     train, validation = resolve_split(manifest, 0)
     assert {item["image_name"] for item in train + validation} == {"a", "b"}

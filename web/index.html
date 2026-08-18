@@ -3,137 +3,209 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>HPOD-Classifier · DRAM 晶圆缺陷诊断</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <title>DRAM 晶圆缺陷诊断 · 多标签</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
-        <circle cx="16" cy="16" r="12" fill="none" stroke="currentColor" stroke-width="1.25" />
-        <circle cx="16" cy="16" r="2" fill="currentColor" />
-        <line x1="16" y1="1.5" x2="16" y2="6" stroke="currentColor" stroke-width="1.25" />
-        <line x1="16" y1="26" x2="16" y2="30.5" stroke="currentColor" stroke-width="1.25" />
-        <line x1="1.5" y1="16" x2="6" y2="16" stroke="currentColor" stroke-width="1.25" />
-        <line x1="26" y1="16" x2="30.5" y2="16" stroke="currentColor" stroke-width="1.25" />
-      </svg>
-      <span class="brand-name">HPOD-Classifier</span>
-      <span class="brand-sub">DRAM 晶圆缺陷诊断</span>
-    </div>
-    <nav class="nav">
-      <button class="nav-btn active" data-view="overview">概览</button>
-      <button class="nav-btn" data-view="diagnose">诊断</button>
-    </nav>
-    <div class="topbar-right">
-      <span class="status-dot" id="status-dot"></span>
-      <span id="status-text">加载中…</span>
-    </div>
-  </header>
-
-  <main>
-    <!-- 概览 -->
-    <section id="view-overview" class="view">
-      <div class="view-head">
-        <div>
-          <h1 class="view-title">模型概览</h1>
-          <p class="view-desc">当前协议、部署状态与数据覆盖范围</p>
-        </div>
-        <span class="badge" id="ov-ready">—</span>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-name">DRAM 缺陷诊断</div>
+        <div class="brand-sub">多标签 · SEM 复查图像</div>
       </div>
+      <nav class="side-nav">
+        <button class="nav-btn active" data-view="overview">数据概览</button>
+        <button class="nav-btn" data-view="evaluation">模型评估</button>
+        <button class="nav-btn" data-view="diagnose">单图诊断</button>
+        <button class="nav-btn" data-view="batch">批量诊断</button>
+      </nav>
+      <div class="side-bottom"><div class="model-status" id="side-model-status">加载中…</div></div>
+    </aside>
 
-      <div class="card-grid" id="ov-params"></div>
-
-      <div class="panel">
-        <div class="panel-head">
-          <h2>训练曲线</h2>
-          <span class="panel-meta" id="ov-epochs"></span>
-        </div>
-        <div class="chart-row">
-          <div class="chart-box">
-            <div class="chart-title">Loss</div>
-            <svg id="chart-loss" role="img" aria-label="训练损失曲线"></svg>
+    <div class="main">
+      <header class="topbar">
+        <div class="view-head">
+          <div>
+            <h1 class="view-title" id="view-title">数据概览</h1>
+            <p class="view-desc" id="view-desc">协议信息、缺陷族分布与数据划分</p>
           </div>
-          <div class="chart-box">
-            <div class="chart-title">Accuracy</div>
-            <svg id="chart-acc" role="img" aria-label="准确率曲线"></svg>
+          <div class="topbar-right">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">加载中…</span>
           </div>
         </div>
-      </div>
+      </header>
 
-      <div class="panel">
-        <div class="panel-head"><h2>类别分布</h2></div>
-        <div class="dist-layout">
-          <div class="dist-stats" id="ov-dist-stats"></div>
-          <svg id="chart-dist" role="img" aria-label="类别样本分布"></svg>
-        </div>
-      </div>
-    </section>
+      <main>
+        <!-- 数据概览 -->
+        <section id="view-overview" class="view">
+          <div class="metric-band" id="ov-metrics"></div>
 
-    <!-- 诊断 -->
-    <section id="view-diagnose" class="view hidden">
-      <div class="view-head">
-        <div>
-          <h1 class="view-title">缺陷诊断</h1>
-          <p class="view-desc">分类证据、未知拒识与相似案例复核</p>
-        </div>
-        <div class="seg" id="diag-mode">
-          <button class="seg-btn active" data-mode="single">单图</button>
-          <button class="seg-btn" data-mode="batch">批量</button>
-        </div>
-      </div>
-
-      <!-- 单图模式 -->
-      <div class="diag-layout" id="diag-single">
-        <div class="diag-left">
-          <div class="panel">
-            <div class="panel-head"><h2>图片来源</h2></div>
-            <div class="source-row">
-              <label class="btn">上传图像<input type="file" id="file-input" accept="image/*" hidden /></label>
-            </div>
-            <div class="preview" id="diag-preview">
-              <div class="empty">选择或上传一张 ROI 图像</div>
-            </div>
-            <div class="preview-meta" id="diag-preview-meta"></div>
-          </div>
-        </div>
-        <div class="diag-right">
-          <div class="panel result-panel" id="diag-result">
-            <div class="empty">诊断结果将显示在这里</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 批量模式 -->
-      <div class="diag-layout hidden" id="diag-batch">
-        <div class="diag-left">
           <div class="panel">
             <div class="panel-head">
-              <h2>选择图像</h2>
-              <span class="panel-meta" id="batch-count">已选 0 张</span>
+              <h2>缺陷族分布</h2>
+              <span class="panel-meta" id="ov-total">—</span>
             </div>
-            <div class="toolbar compact">
-              <input type="search" id="batch-search" placeholder="搜索文件名…" />
-              <select id="batch-defect"><option value="">全部缺陷</option></select>
-            </div>
-            <label class="pick-all"><input type="checkbox" id="batch-select-all" /> 全选当前列表</label>
-            <div class="pick-list" id="batch-list"></div>
-            <div class="load-more"><button class="btn ghost" id="batch-more">加载更多</button></div>
-            <div class="batch-actions">
-              <button class="btn primary" id="btn-batch-run">批量诊断</button>
+            <div class="chart-box">
+              <div class="chart-title">各缺陷族正样本数（多标签，单图可属多族）</div>
+              <svg id="chart-dist" role="img" aria-label="缺陷族样本分布"></svg>
             </div>
           </div>
-        </div>
-        <div class="diag-right">
-          <div class="panel result-panel" id="batch-result">
-            <div class="empty">批量诊断结果将显示在这里</div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>数据划分</h2></div>
+            <table class="data-table" id="ov-splits"></table>
           </div>
-        </div>
-      </div>
-    </section>
-  </main>
+
+          <div class="panel">
+            <div class="panel-head"><h2>缺陷族清单</h2></div>
+            <table class="data-table" id="ov-types"></table>
+          </div>
+        </section>
+
+        <!-- 模型评估 -->
+        <section id="view-evaluation" class="view hidden">
+          <div class="metric-band" id="ev-metrics"></div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2>逐类型验证指标</h2>
+              <span class="panel-meta" id="ev-split-meta">—</span>
+            </div>
+            <table class="data-table" id="ev-perlabel"></table>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2>标签级混淆统计</h2>
+              <span class="panel-meta">按独立缺陷属性统计</span>
+            </div>
+            <div class="chart-box evaluation-chart compact-chart"><svg id="chart-confusion" role="img" aria-label="各缺陷标签混淆统计热力图"></svg></div>
+            <div class="table-scroll"><table class="data-table confusion-table" id="ev-confusion"></table></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Precision–Recall 曲线</h2>
+              <span class="panel-meta" id="ev-pr-meta">—</span>
+            </div>
+            <div class="chart-box evaluation-chart"><svg id="chart-pr" role="img" aria-label="各缺陷标签 Precision Recall 曲线"></svg></div>
+          </div>
+
+          <div class="eval-grid">
+            <div class="panel">
+              <div class="panel-head"><h2>共现组合诊断</h2><span class="panel-meta">组合级识别</span></div>
+              <div class="table-scroll"><table class="data-table" id="ev-pairs"></table></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h2>折间稳定性</h2><span class="panel-meta" id="ev-fold-meta">—</span></div>
+              <div class="table-scroll"><table class="data-table" id="ev-folds"></table></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>阈值稳定性</h2><span class="panel-meta">OOF Bootstrap</span></div>
+            <div class="table-scroll"><table class="data-table" id="ev-thresholds"></table></div>
+          </div>
+        </section>
+
+        <!-- 单图诊断 -->
+        <section id="view-diagnose" class="view hidden">
+          <div class="seg" id="diag-mode">
+            <button class="seg-btn active" data-mode="dataset">数据集选图</button>
+            <button class="seg-btn" data-mode="upload">上传文件</button>
+          </div>
+
+          <div class="diag-layout">
+            <div class="diag-left">
+              <div class="panel">
+                <div class="panel-head"><h2>图片来源</h2></div>
+
+                <div id="diag-source-dataset">
+                  <div class="toolbar">
+                    <select id="diag-split" aria-label="选择集合">
+                      <option value="">加载中…</option>
+                    </select>
+                    <input type="search" id="diag-search" placeholder="搜索文件名…" aria-label="搜索文件名" />
+                  </div>
+                  <div class="thumb-grid" id="diag-grid"><div class="empty">加载中…</div></div>
+                  <div class="load-more"><button class="btn ghost" id="diag-more">加载更多</button></div>
+                </div>
+
+                <div id="diag-source-upload" class="hidden">
+                  <label class="dropzone" id="diag-dropzone">
+                    点击选择或拖拽 SEM 图像
+                    <input type="file" id="diag-file" accept="image/*" hidden />
+                  </label>
+                  <div class="preview hidden" id="diag-preview"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="diag-right">
+              <div class="panel result-panel" id="diag-result">
+                <div class="empty">选择或上传图像后显示诊断结果</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 批量诊断 -->
+        <section id="view-batch" class="view hidden">
+          <div class="panel">
+            <div class="panel-head"><h2>批量设置</h2></div>
+            <div class="batch-settings" id="batch-settings">
+              <div class="seg" id="batch-mode">
+                <button class="seg-btn active" data-mode="dataset">数据集抽样</button>
+                <button class="seg-btn" data-mode="upload">上传文件</button>
+              </div>
+              <div id="batch-config-dataset" class="batch-config">
+                <select id="batch-split" aria-label="选择集合">
+                  <option value="">加载中…</option>
+                </select>
+                <label class="field">数量
+                  <input type="number" id="batch-count" value="50" min="1" max="200" />
+                </label>
+                <label class="field">种子
+                  <input type="number" id="batch-seed" value="42" min="0" max="99999" />
+                </label>
+              </div>
+              <div id="batch-config-upload" class="batch-config hidden">
+                <label class="dropzone inline" id="batch-dropzone">
+                  选择最多 200 张图像（可多选）
+                  <input type="file" id="batch-file" accept="image/*" multiple hidden />
+                </label>
+                <span class="panel-meta" id="batch-file-count"></span>
+              </div>
+              <button class="btn primary" id="btn-batch-run">开始批量诊断</button>
+            </div>
+          </div>
+
+          <div id="batch-results" class="hidden">
+            <div class="metric-band" id="batch-summary"></div>
+
+            <div class="panel">
+              <div class="panel-head">
+                <h2>诊断结果</h2>
+                <button class="btn ghost" id="btn-batch-export">导出 CSV</button>
+              </div>
+              <div class="toolbar">
+                <input type="search" id="batch-filter" placeholder="搜索文件名…" aria-label="搜索文件名" />
+                <select id="batch-type-filter" aria-label="按类型筛选">
+                  <option value="">全部类型</option>
+                </select>
+                <label class="checkbox"><input type="checkbox" id="batch-review-only" /> 仅需复核</label>
+                <span class="toolbar-info" id="batch-filtered-info"></span>
+              </div>
+              <div class="table-wrap">
+                <table class="data-table" id="batch-table"></table>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
 
   <dialog class="image-dialog" id="batch-image-dialog">
     <div class="image-dialog-head">
@@ -144,18 +216,10 @@
       <button class="icon-btn" id="batch-image-close" aria-label="关闭图像详情" title="关闭">×</button>
     </div>
     <div class="image-dialog-body">
-      <img id="batch-image-preview" alt="批量诊断图像详情" />
+      <img id="batch-image-preview" alt="图像预览" />
       <div class="image-error hidden" id="batch-image-error">图像加载失败</div>
     </div>
   </dialog>
-
-  <footer class="statusbar">
-    <span id="footer-model">模型: —</span>
-    <span class="dot-sep"></span>
-    <span id="footer-classes">— 类</span>
-    <span class="dot-sep"></span>
-    <span id="footer-device">设备: —</span>
-  </footer>
 
   <script src="charts.js"></script>
   <script src="app.js"></script>

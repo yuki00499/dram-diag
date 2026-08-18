@@ -21,7 +21,9 @@ class ModelRunner:
             validate_checkpoint(checkpoint, manifest)
             config = checkpoint["config"]
             model = DefectClassifier(len(checkpoint["class_to_idx"]), config.get("backbone", "resnet18"), pretrained=False,
-                                     dropout=float(config.get("dropout", 0)), projection_dim=0)
+                                     dropout=float(config.get("dropout", 0)),
+                                     label_graph=checkpoint.get("label_graph"),
+                                     graph_alpha_init=float(config.get("graph_alpha_init", .1)))
             state = {key: value for key, value in checkpoint["model"].items() if not key.startswith("projection.")}
             model.load_state_dict(state, strict=False)
             self.models.append(model.to(self.device).eval())
@@ -48,3 +50,25 @@ class ModelRunner:
     def infer_items(self, items):
         paths = [self.data_root / "images" / item["image_name"] for item in items]
         return self.infer_paths(paths)
+
+    def infer_multilabel_paths(self, paths, batch_size=8):
+        """Average sigmoid probabilities across folds, as required by dram-ml-v2."""
+        torch = self.torch
+        config = self.checkpoints[0]["config"]
+        arrays = [image_array(path, tuple(config.get("image_size", [480, 320])), False,
+                              self.checkpoints[0]["normalization"], self.checkpoints[0]["data_stats"])
+                  for path in paths]
+        all_probabilities, all_embeddings = [], []
+        with torch.no_grad():
+            for start in range(0, len(arrays), batch_size):
+                batch = torch.from_numpy(np.stack(arrays[start:start + batch_size])).to(self.device)
+                outputs = [model(batch) for model in self.models]
+                all_probabilities.append(torch.stack([
+                    torch.sigmoid(item["logits"]) for item in outputs]).mean(0).cpu().numpy())
+                embedding = torch.stack([item["embedding"] for item in outputs]).mean(0)
+                all_embeddings.append(torch.nn.functional.normalize(embedding, dim=1).cpu().numpy())
+        return np.concatenate(all_probabilities), np.concatenate(all_embeddings)
+
+    def infer_multilabel_items(self, items):
+        paths = [self.data_root / "images" / item["image_name"] for item in items]
+        return self.infer_multilabel_paths(paths)

@@ -1,0 +1,11 @@
+protocol_version: dram-ml-v2
+types: [1, 2, 3, 4, 5, 7, 8]
+core_types: [2, 3, 4, 5]
+rare_types: [1, 7, 8]
+tracked_pairs:
+  - [2, 4]
+  - [3, 4]
+  - [4, 5]
+holdout_ratio: 0.1
+cv_folds: 5
+split_seed: 42

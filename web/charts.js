@@ -1,4 +1,9 @@
-// 自绘 SVG 图表:折线 / 条形 / 置信度圆环(无外部依赖)
+// 极简 SVG 图表：白底、浅灰网格、降饱和色系（无外部依赖）
+const CHARCOAL = "#36454F";
+const SLATE = "#708090";
+const LIGHT_GRAY = "#D3D3D3";
+const SEMANTIC_GREEN = "#2E7D32";
+const SEMANTIC_RED = "#C0392B";
 
 function fmtNum(v) {
   if (v === null || v === undefined) return "";
@@ -9,81 +14,91 @@ function fmtNum(v) {
   return v.toFixed(3);
 }
 
-// series: [{ name, color, values: [] }]
-function lineChart(svgEl, series, opts = {}) {
-  const W = 600, H = 220, mL = 46, mR = 14, mT = 18, mB = 24;
+function prChart(svgEl, curves, names = {}, highlight = []) {
+  const W = 640, H = 300, mL = 44, mR = 200, mT = 20, mB = 34;
   const plotW = W - mL - mR, plotH = H - mT - mB;
-  const n = Math.max(...series.map((s) => s.values.length), 1);
-  const all = series.flatMap((s) => s.values);
-  let yMin = opts.yMin !== undefined ? opts.yMin : Math.min(...all);
-  let yMax = opts.yMax !== undefined ? opts.yMax : Math.max(...all);
-  if (yMax - yMin < 1e-9) { yMax = yMin + 1; }
-  const X = (i) => (n <= 1 ? mL + plotW / 2 : mL + (i / (n - 1)) * plotW);
-  const Y = (v) => mT + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
-
-  let s = "";
-  for (let t = 0; t <= 4; t++) {
-    const val = yMin + ((yMax - yMin) * t) / 4;
-    const yy = Y(val);
-    s += `<line class="grid-line" x1="${mL}" y1="${yy.toFixed(1)}" x2="${W - mR}" y2="${yy.toFixed(1)}" />`;
-    s += `<text class="axis-label" x="${mL - 8}" y="${(yy + 3).toFixed(1)}" text-anchor="end">${fmtNum(val)}</text>`;
+  const colors = ["#36454F", "#2E7D32", "#C0392B", "#708090", "#8E6C3A", "#477A8A", "#7A5A78"];
+  const scaleX = value => mL + value * plotW;
+  const scaleY = value => mT + (1 - value) * plotH;
+  let svg = "";
+  for (let tick = 0; tick <= 4; tick++) {
+    const value = tick / 4;
+    const x = scaleX(value), y = scaleY(value);
+    svg += `<line class="grid-line" x1="${x}" y1="${mT}" x2="${x}" y2="${H - mB}" />`;
+    svg += `<line class="grid-line" x1="${mL}" y1="${y}" x2="${W - mR}" y2="${y}" />`;
+    svg += `<text class="axis-label" x="${x}" y="${H - 10}" text-anchor="middle">${value.toFixed(1)}</text>`;
+    svg += `<text class="axis-label" x="${mL - 8}" y="${y + 3}" text-anchor="end">${value.toFixed(1)}</text>`;
   }
-  if (n > 1) {
-    s += `<text class="axis-label" x="${X(0).toFixed(1)}" y="${H - 8}" text-anchor="middle">1</text>`;
-    s += `<text class="axis-label" x="${X(n - 1).toFixed(1)}" y="${H - 8}" text-anchor="middle">${n}</text>`;
-  }
-  series.forEach((ser) => {
-    const pts = ser.values.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
-    s += `<polyline class="series" points="${pts}" stroke="${ser.color}" />`;
-    ser.values.forEach((v, i) => {
-      s += `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.2" fill="${ser.color}" />`;
-    });
-  });
-  let lx = mL;
-  series.forEach((ser) => {
-    s += `<circle cx="${lx}" cy="${mT - 9}" r="3" fill="${ser.color}" />`;
-    s += `<text class="legend-text" x="${lx + 8}" y="${mT - 5}">${ser.name}</text>`;
-    lx += 8 + (ser.name.length * 6.5 + 24);
+  svg += `<text class="axis-label" x="${mL + plotW / 2}" y="${H - 1}" text-anchor="middle">Recall</text>`;
+  svg += `<text class="axis-label" transform="translate(11 ${mT + plotH / 2}) rotate(-90)" text-anchor="middle">Precision</text>`;
+  Object.entries(curves || {}).forEach(([id, points], index) => {
+    if (!points || !points.length) return;
+    const color = colors[index % colors.length];
+    const path = points.map(point => `${scaleX(point.recall).toFixed(1)},${scaleY(point.precision).toFixed(1)}`).join(" ");
+    svg += `<polyline class="series pr-series" points="${path}" stroke="${color}" />`;
+    const label = names[id] || `类型 ${id}`;
+    const marker = highlight.includes(Number(id)) ? " · 核心" : "";
+    const lx = W - mR + 12, ly = mT + 12 + index * 18;
+    svg += `<line x1="${lx}" y1="${ly - 4}" x2="${lx + 18}" y2="${ly - 4}" stroke="${color}" stroke-width="2" />`;
+    svg += `<text class="legend-text" x="${lx + 24}" y="${ly}">${escapeXml(label)}${marker}</text>`;
   });
   svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  svgEl.innerHTML = s;
+  svgEl.innerHTML = svg;
 }
 
+function confusionHeatmap(svgEl, rows, names = {}) {
+  const W = 640, rowH = 34, H = Math.max(100, 42 + rows.length * rowH);
+  const mL = 240, cellW = 76, mT = 28;
+  const columns = ["TN", "FP", "FN", "TP"];
+  const cellColors = { TN: "#708090", FP: "#C0392B", FN: "#C97832", TP: "#2E7D32" };
+  const maxValue = Math.max(1, ...rows.flatMap(row => columns.map(column => Number(row[column.toLowerCase()] || 0))));
+  let svg = "";
+  columns.forEach((column, index) => {
+    svg += `<text class="axis-label" x="${mL + index * cellW + cellW / 2}" y="18" text-anchor="middle">${column}</text>`;
+  });
+  rows.forEach((row, rowIndex) => {
+    const y = mT + rowIndex * rowH;
+    const label = names[row.label] || `类型 ${row.label}`;
+    svg += `<text class="axis-label" x="${mL - 10}" y="${y + 21}" text-anchor="end">${escapeXml(label)}</text>`;
+    columns.forEach((column, columnIndex) => {
+      const value = Number(row[column.toLowerCase()] || 0);
+      const opacity = (0.12 + 0.78 * value / maxValue).toFixed(2);
+      const x = mL + columnIndex * cellW;
+      svg += `<rect x="${x + 2}" y="${y + 3}" width="${cellW - 4}" height="${rowH - 6}" rx="2" fill="${cellColors[column]}" opacity="${opacity}" />`;
+      svg += `<text class="heat-value" x="${x + cellW / 2}" y="${y + 22}" text-anchor="middle">${value}</text>`;
+    });
+  });
+  svgEl.setAttribute("viewBox", `0 0 ${mL + columns.length * cellW + 8} ${H}`);
+  svgEl.innerHTML = svg;
+}
+
+// 横向条形图：类别名显示在左侧（英文（中文）长标签）
 // values: [{ label, value, highlight }]
-function barChart(svgEl, values, opts = {}) {
-  const W = 600, H = 220, mL = 40, mR = 10, mT = 12, mB = 26;
+function horizontalBarChart(svgEl, values, opts = {}) {
+  const W = 760, H = 250, mL = 290, mR = 56, mT = 10, mB = 8;
   const plotW = W - mL - mR, plotH = H - mT - mB;
   const n = values.length;
+  const rowH = plotH / n;
   const yMax = Math.max(...values.map((v) => v.value), 1);
-  const bw = plotW / n;
   let s = "";
   for (let t = 0; t <= 4; t++) {
     const val = (yMax * t) / 4;
-    const yy = mT + plotH - (val / yMax) * plotH;
-    s += `<line class="grid-line" x1="${mL}" y1="${yy.toFixed(1)}" x2="${W - mR}" y2="${yy.toFixed(1)}" />`;
-    s += `<text class="axis-label" x="${mL - 8}" y="${(yy + 3).toFixed(1)}" text-anchor="end">${Math.round(val)}</text>`;
+    const xx = mL + (val / yMax) * plotW;
+    s += `<line class="grid-line" x1="${xx.toFixed(1)}" y1="${mT}" x2="${xx.toFixed(1)}" y2="${H - mB}" />`;
+    s += `<text class="axis-label" x="${xx.toFixed(1)}" y="${H - mB + 12}" text-anchor="middle">${Math.round(val)}</text>`;
   }
   values.forEach((v, i) => {
-    const bh = (v.value / yMax) * plotH;
-    const x = mL + i * bw;
+    const y = mT + i * rowH;
+    const bh = Math.max((v.value / yMax) * plotW, 1);
     const cls = v.highlight ? "bar tail" : "bar";
-    s += `<rect class="${cls}" x="${(x + bw * 0.18).toFixed(1)}" y="${(mT + plotH - bh).toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" height="${Math.max(bh, 0.5).toFixed(1)}" rx="1" />`;
+    s += `<rect class="${cls}" x="${mL}" y="${(y + rowH * 0.22).toFixed(1)}" width="${bh.toFixed(1)}" height="${(rowH * 0.56).toFixed(1)}" rx="1" />`;
+    s += `<text class="axis-label" x="${(mL - 8).toFixed(1)}" y="${(y + rowH * 0.5 + 3.5).toFixed(1)}" text-anchor="end">${escapeXml(v.label)}</text>`;
+    s += `<text class="axis-label" x="${(mL + bh + 6).toFixed(1)}" y="${(y + rowH * 0.5 + 3.5).toFixed(1)}">${Math.round(v.value)}</text>`;
   });
   svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svgEl.innerHTML = s;
 }
 
-// 置信度圆环(0..1)
-function ring(percent) {
-  const p = Math.max(0, Math.min(1, percent));
-  const C = 2 * Math.PI * 42;
-  const filled = C * p;
-  const color = p >= 0.5 ? "#1B66F5" : "#B45309";
-  return `<svg viewBox="0 0 100 100">
-    <circle cx="50" cy="50" r="42" fill="none" stroke="#E7EAED" stroke-width="8" />
-    <circle cx="50" cy="50" r="42" fill="none" stroke="${color}" stroke-width="8" stroke-linecap="round"
-      stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${(C - filled).toFixed(2)}" transform="rotate(-90 50 50)" />
-    <text x="50" y="47" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="20" font-weight="500" fill="#13161A">${(p * 100).toFixed(1)}%</text>
-    <text x="50" y="62" text-anchor="middle" font-family="IBM Plex Sans, sans-serif" font-size="9" fill="#6E7681">置信度</text>
-  </svg>`;
+function escapeXml(value) {
+  return String(value).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 }
