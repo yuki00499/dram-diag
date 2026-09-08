@@ -12,5 +12,6 @@ runs/
 *.pt
 legacy/
 晶圆缺陷分类数据集/
+项目方案/
 
 !artifacts/.gitkeep
