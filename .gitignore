@@ -13,5 +13,8 @@ runs/
 legacy/
 晶圆缺陷分类数据集/
 项目方案/
+提交材料/
+scripts/build_submission_doc.py
+scripts/draw_candidate_figures.py
 
 !artifacts/.gitkeep
