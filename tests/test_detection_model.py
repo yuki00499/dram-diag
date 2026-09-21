@@ -53,8 +53,8 @@ def test_review_policy_explains_global_local_disagreement():
 
 
 def test_yolo26_p2_and_joint_loss_integration(tmp_path, monkeypatch):
-    pytest.importorskip("ultralytics")
     monkeypatch.setenv("YOLO_CONFIG_DIR", str(tmp_path))
+    pytest.importorskip("ultralytics")
     from copy import copy
     from ultralytics.utils import DEFAULT_CFG
     from dram_diag.detection_training import build_hierarchical_types
