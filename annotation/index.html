@@ -23,8 +23,13 @@
         <p id="position"></p>
       </section>
       <section>
-        <h2>缺陷类别</h2>
+        <h2>缺陷类别（同图可多类）</h2>
+        <p class="panel-help">先选择一个类别并画框，再选择其他类别继续画。类别按钮表示“下一个框的类别”，不是整张图片单选。</p>
         <div id="classes" class="class-list"></div>
+        <div class="image-label-block">
+          <strong>本图已有标签</strong>
+          <div id="image-labels" class="label-summary"></div>
+        </div>
         <button id="ignore-mode" class="wide">争议/忽略区域 (I)</button>
       </section>
       <section>
@@ -45,13 +50,13 @@
         <span id="mode-label">选择类别后拖动画框</span>
       </div>
       <div id="canvas-wrap"><canvas id="canvas"></canvas></div>
-      <div class="hint">拖动空白处画框；拖动框内移动；拖动四角调整；Delete 删除；Ctrl+Z/Y 撤销/重做；←/→ 切图。
+      <div class="hint">同一图片可画多个类别：选择类别 → 画框 → 换类别 → 继续画框。拖动框内移动；拖动四角调整；Delete 删除；Ctrl+Z/Y 撤销/重做；←/→ 切图。
       </div>
     </section>
 
     <aside class="right-panel">
       <section>
-        <h2>当前对象</h2>
+        <h2>本图缺陷实例（支持多标签）</h2>
         <div id="objects" class="object-list"></div>
       </section>
       <section>

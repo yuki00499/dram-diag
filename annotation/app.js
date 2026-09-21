@@ -59,7 +59,7 @@ function buildControls() {
   config.taxonomy.object_classes.forEach(item => {
     const button = document.createElement("button");
     button.className = "class-btn";
-    button.innerHTML = `<span class="swatch" style="background:${colorFor(item.id)}"></span><strong>${item.id}</strong><span>${escapeHtml(item.name_zh)}<small> ${escapeHtml(item.name_en)}</small></span>`;
+    button.innerHTML = `<span class="swatch" style="background:${colorFor(item.id)}"></span><strong>${item.id}</strong><span>${escapeHtml(item.name_zh)}<small> ${escapeHtml(item.name_en)}</small></span><span class="class-count"></span>`;
     button.title = `${item.definition || ""}\n边界：${item.boundary_rule || ""}`;
     button.onclick = () => { selectedClass = Number(item.id); ignoreMode = false; selected = null; renderAll(); };
     button.dataset.classId = item.id;
@@ -120,15 +120,30 @@ function drawBox(box, color, label, active, dashed=false) {
 
 function renderAll() {
   if (!image?.complete) return;
-  document.querySelectorAll(".class-btn").forEach(button => button.classList.toggle("selected", !ignoreMode && Number(button.dataset.classId) === selectedClass));
+  const classCounts = activeObjects().reduce((counts, obj) => counts.set(Number(obj.class_id), (counts.get(Number(obj.class_id)) || 0) + 1), new Map());
+  document.querySelectorAll(".class-btn").forEach(button => {
+    const classId = Number(button.dataset.classId), active = !ignoreMode && classId === selectedClass;
+    button.classList.toggle("selected", active);
+    button.setAttribute("aria-pressed", String(active));
+    const count = classCounts.get(classId) || 0;
+    button.querySelector(".class-count").textContent = count ? `本图 ${count} 框` : "";
+  });
   $("ignore-mode").classList.toggle("selected", ignoreMode);
-  $("mode-label").textContent = ignoreMode ? "拖动创建争议/忽略区域" : selectedClass == null ? "选择缺陷类别后拖动画框" : `当前类别：${classInfo(selectedClass)?.name_zh || selectedClass}`;
+  $("mode-label").textContent = ignoreMode ? "拖动创建争议/忽略区域" : selectedClass == null ? "选择缺陷类别后拖动画框" : `下一个框：${classInfo(selectedClass)?.name_zh || selectedClass}（可换类继续画）`;
   document.querySelectorAll("#qualities input").forEach(input => input.checked = record().quality_attributes.includes(input.value));
   document.querySelectorAll("#usability button").forEach(button => button.classList.toggle("selected", button.dataset.value === record().usability));
   $("review-status").value = record().review?.status || "unreviewed"; $("review-note").value = record().review?.note || "";
   $("blind-review").textContent = blindReview ? "退出盲复核（查看主标）" : "进入盲复核";
   $("blind-review").classList.toggle("selected", blindReview);
-  renderObjects(); renderStats(); renderCanvas();
+  renderImageLabels(); renderObjects(); renderStats(); renderCanvas();
+}
+
+function renderImageLabels() {
+  const target = $("image-labels"), counts = new Map();
+  activeObjects().forEach(obj => counts.set(Number(obj.class_id), (counts.get(Number(obj.class_id)) || 0) + 1));
+  const chips = config.taxonomy.object_classes.filter(item => counts.has(Number(item.id))).map(item =>
+    `<span class="label-chip" style="--chip-color:${colorFor(item.id)}">${escapeHtml(item.name_zh)} <strong>×${counts.get(Number(item.id))}</strong></span>`);
+  target.innerHTML = chips.length ? chips.join("") : '<span class="empty-labels">尚未画框；可依次选择多个类别。</span>';
 }
 
 function renderObjects() {
@@ -143,7 +158,7 @@ function renderObjects() {
     row.innerHTML = `<strong>IGNORE</strong><br><small>${region.bbox_xyxy.map(v=>Math.round(v)).join(", ")} · ${escapeHtml(region.reason || "争议")}</small>`;
     row.onclick = () => { selected = {kind:"ignore", index}; renderAll(); }; target.appendChild(row);
   });
-  if (!target.children.length) target.textContent = "尚无缺陷框";
+  if (!target.children.length) target.textContent = "尚无缺陷框；同一图片可添加多个类别和多个实例。";
 }
 
 function renderStats() {
@@ -183,7 +198,7 @@ canvas.addEventListener("pointerup", () => {
   if(!pointerAction)return; const action=pointerAction; pointerAction=null;
   if(action.kind==="draw" && action.box[2]-action.box[0]>=3 && action.box[3]-action.box[1]>=3){
     if(action.ignore){ const reason=prompt("争议/忽略原因","边界或类别不确定")||"未说明"; activeIgnores().push({bbox_xyxy:action.box.map(v=>Math.round(v*100)/100),reason,candidate_class_ids:selectedClass==null?[]:[selectedClass]}); selected={kind:"ignore",index:activeIgnores().length-1}; }
-    else { activeObjects().push({instance_id:`${blindReview?"review-":""}${PathStem(currentName())}-${Date.now().toString(36)}`,class_id:selectedClass,bbox_xyxy:action.box.map(v=>Math.round(v*100)/100)}); selected={kind:"object",index:activeObjects().length-1}; }
+    else { activeObjects().push({instance_id:`${blindReview?"review-":""}${PathStem(currentName())}-${Date.now().toString(36)}`,class_id:selectedClass,bbox_xyxy:action.box.map(v=>Math.round(v*100)/100)}); selected={kind:"object",index:activeObjects().length-1}; message(`已添加“${classInfo(selectedClass)?.name_zh || selectedClass}”；可选择其他类别继续画框。`); }
   }
   commit(action.before); renderAll();
 });

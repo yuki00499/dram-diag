@@ -72,6 +72,17 @@ def test_audit_warns_duplicate_class_but_rejects_out_of_bounds(tmp_path):
     assert any("同类别" in item["message"] for item in report["warnings"])
 
 
+def test_audit_accepts_multiple_classes_on_the_same_image():
+    tax, payload = frozen_payload(1)
+    payload["images"]["image_0.jpg"]["objects"] = [
+        {"instance_id": "rounded", "class_id": 0, "bbox_xyxy": [10, 10, 30, 30]},
+        {"instance_id": "elongated", "class_id": 1, "bbox_xyxy": [60, 40, 110, 55]},
+    ]
+    report = audit_annotations(payload, tax, require_complete=True)
+    assert report["valid"]
+    assert not report["errors"]
+
+
 def test_yolo_export_keeps_true_negative_and_excludes_ignore_regions(tmp_path):
     tax, payload = frozen_payload(20)
     # One otherwise valid item is global-only because ambiguous regions must not become background.
