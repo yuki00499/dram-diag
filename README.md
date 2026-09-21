@@ -10,7 +10,54 @@
 - 主结论仅针对样本较充分的核心标签 `2/3/4/5`（Macro-F1 主指标）；稀有标签 `1/7/8` 作为少样本探索结果单独报告。
 - 测试集严格锁定为 115 张，只允许最终评估一次，防止测试泄漏。
 
-当前主协议为 `dram-ml-v2`。
+当前已并行维护两个协议：冻结的分类基线 `dram-ml-v2`，以及独立的定位协议
+`dram-det-v3`。v3 不覆盖或重用 v2 的测试结论。
+
+## dram-det-v3：框定位与风险复核
+
+v3 将 YOLO26 作为共享特征主干，同时输出缺陷框、整图缺陷概率、质量属性与
+可诊断状态。B1/B3 使用官方 P2（stride 4）结构；B2/B3 从检测多尺度特征池化
+整图诊断，并对 pre-NMS 类别分数施加 10 epoch 线性 warm-up 的全局—局部一致性
+损失。`unusable`、`review` 和带争议区域的图像只进入独立的全局监督流，不会作为
+检测背景负样本。
+
+类别体系当前有意保持 `draft` 且不预填旧七类。完成约 100 张试标、由领域人员批准
+并将 `configs/taxonomy_v3.yaml` 设为 `frozen` 后，才能冻结标注、导出和训练。
+
+```powershell
+# 1. 选择试标样本并启动可版本控制的标注站
+python scripts\select_detection_pilot.py
+python scripts\serve_annotation_v3.py --port 8011
+
+# 主标完成后生成分层 20% 盲复核清单；稀有类、争议与审计异常自动全选
+python scripts\select_detection_review.py
+
+# 2. 审计并冻结源 JSON（冻结文件拒绝原地覆盖）
+python scripts\audit_detection_dataset.py
+python scripts\audit_detection_dataset.py --freeze-out annotations\dram_det_v3.frozen.json
+
+# 3. 生成新种子的 10% 测试隔离与 5 折 development，然后导出某一折
+python scripts\build_detection_protocol.py --annotations annotations\dram_det_v3.frozen.json
+python scripts\export_detection_dataset.py --fold 0
+
+# 4. 固定消融训练；其余配置依次替换为 b1/b2/b3
+python scripts\train_detection.py `
+  --config configs\experiments\dram_det_v3_b0.yaml `
+  --data artifacts\dram_det_v3\yolo\fold-0\data.yaml
+
+# 5. 汇总四组结果并按预注册门槛判定是否保留创新
+python scripts\evaluate_detection_ablations.py `
+  --b0 <B0.json> --b1 <B1.json> --b2 <B2.json> --b3 <B3.json> `
+  --classes <0,1,...> --quality-attributes <blur,noise,...> `
+  --out artifacts\dram_det_v3\ablation_report.json
+
+# 仅在类别、阈值、复核规则和 checkpoint 全部锁定后执行；成功后写入消费锁
+python scripts\evaluate_detection_test.py --deployment artifacts\deployment-v3-eval.json
+```
+
+源标注使用绝对像素 `xyxy` JSON，YOLO 文本只是可再生派生产物。部署后新增
+`/api/v3/model/info`、`/api/v3/model/evaluation`、`/api/v3/diagnose/upload`、
+`/api/v3/diagnose/batch-upload` 和 `/api/v3/review-queue`；原 v2 接口保持不变。
 
 ## 1. 数据集
 

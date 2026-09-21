@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DRAM v3 缺陷框标注</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div><h1>DRAM v3 缺陷框标注</h1><p id="taxonomy-state">载入中…</p></div>
+    <div class="header-actions">
+      <button id="undo">撤销</button><button id="redo">重做</button>
+      <button id="import">导入</button><button id="export">导出</button>
+      <button id="save" class="primary">保存到项目</button>
+    </div>
+  </header>
+  <main>
+    <aside class="left-panel">
+      <section>
+        <h2>定位</h2>
+        <div class="nav-row"><button id="prev">←</button><input id="jump" placeholder="序号或 image_0.jpg"><button id="next">→</button></div>
+        <p id="position"></p>
+      </section>
+      <section>
+        <h2>缺陷类别</h2>
+        <div id="classes" class="class-list"></div>
+        <button id="ignore-mode" class="wide">争议/忽略区域 (I)</button>
+      </section>
+      <section>
+        <h2>图像质量属性</h2>
+        <div id="qualities" class="check-list"></div>
+      </section>
+      <section>
+        <h2>可诊断性</h2>
+        <div id="usability" class="segmented"></div>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <div class="canvas-toolbar">
+        <span id="image-name"></span>
+        <button id="blind-review">进入盲复核</button>
+        <label><input type="checkbox" id="show-labels" checked> 显示标签</label>
+        <span id="mode-label">选择类别后拖动画框</span>
+      </div>
+      <div id="canvas-wrap"><canvas id="canvas"></canvas></div>
+      <div class="hint">拖动空白处画框；拖动框内移动；拖动四角调整；Delete 删除；Ctrl+Z/Y 撤销/重做；←/→ 切图。
+      </div>
+    </section>
+
+    <aside class="right-panel">
+      <section>
+        <h2>当前对象</h2>
+        <div id="objects" class="object-list"></div>
+      </section>
+      <section>
+        <h2>复核状态</h2>
+        <select id="review-status">
+          <option value="unreviewed">未复核</option>
+          <option value="primary_complete">主标完成</option>
+          <option value="reviewed">复核通过</option>
+          <option value="disputed">存在争议</option>
+        </select>
+        <textarea id="review-note" placeholder="复核备注"></textarea>
+      </section>
+      <section>
+        <h2>数据进度</h2>
+        <div id="stats"></div>
+        <label class="filter"><input type="checkbox" id="only-unreviewed"> 导航时仅看未复核</label>
+        <label class="filter"><input type="checkbox" id="only-review-sample"> 仅看抽取复核集</label>
+      </section>
+      <section id="messages" class="messages"></section>
+    </aside>
+  </main>
+  <input id="import-file" type="file" accept="application/json" hidden>
+  <script src="app.js"></script>
+</body>
+</html>

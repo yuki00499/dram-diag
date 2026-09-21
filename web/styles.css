@@ -343,6 +343,22 @@ input[type="search"]:focus, input[type="number"]:focus, select:focus { border-co
 .thumb-button.image-load-failed .row-thumb { display: none; }
 .cell-name { margin-left: 8px; font-family: var(--mono); font-size: 12px; }
 
+/* ---------- v3 localization ---------- */
+.panel-actions, .v3-upload-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.v3-upload-row .dropzone { flex: 1 1 360px; }
+.v3-results { display: grid; gap: 16px; margin-top: 16px; }
+.v3-result-grid { display: grid; grid-template-columns: minmax(360px, 1.5fr) minmax(260px, 1fr); gap: 22px; }
+.v3-image-stage { position: relative; align-self: start; background: #11181d; border: 1px solid var(--hairline); overflow: hidden; }
+.v3-image-stage img { width: 100%; display: block; image-rendering: pixelated; }
+.v3-box { position: absolute; border: 2px solid #52e091; box-shadow: 0 0 0 1px rgba(0,0,0,.6); pointer-events: none; }
+.v3-box span { position: absolute; left: -2px; top: -23px; max-width: 220px; padding: 2px 6px; color: #fff; background: rgba(16,112,68,.92); font: 11px/17px var(--mono); white-space: nowrap; }
+.v3-evidence h3 { margin: 0 0 9px; font-size: 12.5px; }
+.v3-evidence h3:not(:first-child) { margin-top: 18px; }
+.v3-evidence ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; }
+.v3-prob-grid { display: grid; gap: 6px; }
+.v3-prob-grid div { display: flex; justify-content: space-between; border-bottom: 1px solid var(--hairline-soft); padding-bottom: 5px; }
+.v3-prob-grid span { color: var(--muted); }
+
 /* ---------- dialog ---------- */
 .image-dialog { width: min(760px, calc(100vw - 32px)); border: 1px solid var(--hairline); border-radius: 8px; padding: 0; background: var(--panel); color: var(--ink); box-shadow: 0 24px 70px rgba(54, 69, 79, 0.28); }
 .image-dialog::backdrop { background: rgba(54, 69, 79, 0.55); }
@@ -370,6 +386,7 @@ input[type="search"]:focus, input[type="number"]:focus, select:focus { border-co
   .side-bottom { margin-top: 0; padding-top: 0; display: none; }
   .diag-layout { grid-template-columns: 1fr; }
   .eval-grid { grid-template-columns: 1fr; }
+  .v3-result-grid { grid-template-columns: 1fr; }
   main, .topbar { padding-left: 16px; padding-right: 16px; }
 }
 

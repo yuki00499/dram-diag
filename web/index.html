@@ -17,6 +17,7 @@
         <button class="nav-btn active" data-view="overview">数据概览</button>
         <button class="nav-btn" data-view="evaluation">模型评估</button>
         <button class="nav-btn" data-view="diagnose">单图诊断</button>
+        <button class="nav-btn" data-view="localize">空间定位 v3</button>
         <button class="nav-btn" data-view="batch">批量诊断</button>
       </nav>
       <div class="side-bottom"><div class="model-status" id="side-model-status">加载中…</div></div>
@@ -147,6 +148,27 @@
                 <div class="empty">选择或上传图像后显示诊断结果</div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <!-- v3 空间定位 -->
+        <section id="view-localize" class="view hidden">
+          <div class="metric-band" id="v3-model-info"></div>
+          <div class="panel">
+            <div class="panel-head">
+              <div><h2>层级缺陷定位</h2><span class="panel-meta">缺陷框 · 整图诊断 · 质量属性 · 分歧复核</span></div>
+              <div class="panel-actions"><label class="checkbox"><input type="checkbox" id="v3-show-boxes" checked> 显示检测框</label><button class="btn ghost" id="v3-refresh-queue">刷新复核队列</button><button class="btn ghost" id="v3-export" disabled>导出 CSV</button></div>
+            </div>
+            <div class="v3-upload-row">
+              <label class="dropzone inline" id="v3-dropzone">选择或拖入最多 200 张 SEM 图像<input id="v3-files" type="file" accept="image/*" multiple hidden></label>
+              <span class="panel-meta" id="v3-file-count">未选择文件</span>
+              <button class="btn primary" id="v3-run" disabled>开始 v3 诊断</button>
+            </div>
+          </div>
+          <div id="v3-results" class="v3-results"><div class="empty">上传图像后将显示缺陷框、整图判断和复核原因</div></div>
+          <div class="panel">
+            <div class="panel-head"><h2>风险复核队列</h2><span class="panel-meta" id="v3-queue-count">0 条</span></div>
+            <div class="table-wrap"><table class="data-table" id="v3-review-table"><tbody><tr><td>当前无需复核记录</td></tr></tbody></table></div>
           </div>
         </section>
 

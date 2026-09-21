@@ -1,0 +1,6 @@
+_base_: configs/experiments/dram_det_v3_b2.yaml
+experiment: dram_det_v3_b3
+variant: B3
+model: yolo26s-p2.yaml
+pretrained_weights: yolo26s.pt
+p2_head: true

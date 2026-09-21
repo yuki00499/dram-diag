@@ -1,0 +1,34 @@
+schema_version: 3
+status: draft
+description: >-
+  DRAM SEM v3 类别定义源。缺陷类别必须由领域人员在100张试标后从零审批；
+  在 status 改为 frozen 之前，数据导出和正式训练命令将拒绝运行。
+object_classes: []
+quality_attributes:
+  - id: low_signal
+    name_zh: 低信号
+    name_en: Low signal
+    definition: 整体或局部信号强度不足，影响缺陷判读。
+  - id: blur
+    name_zh: 模糊
+    name_en: Blur
+    definition: 图像对焦或边缘清晰度不足。
+  - id: noise
+    name_zh: 噪声干扰
+    name_en: Noise
+    definition: 颗粒噪声或条带噪声明显影响视觉判读。
+  - id: underexposed
+    name_zh: 欠曝
+    name_en: Underexposed
+    definition: 整体亮度过低导致细节丢失。
+  - id: overexposed
+    name_zh: 过曝
+    name_en: Overexposed
+    definition: 整体亮度过高导致细节丢失。
+usability_states: [usable, review, unusable]
+annotation_rules:
+  source_box_format: xyxy_absolute_pixels
+  allow_multiple_instances_per_class: true
+  duplicate_class_policy: warn
+  ambiguous_policy: ignore_region
+  require_examples_before_freeze: true

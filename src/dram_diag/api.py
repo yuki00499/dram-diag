@@ -9,6 +9,7 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .detection_inference import DetectionRuntime
 from .inference import ModelRunner
 from .protocol import validate_multilabel_manifest
 from .retrieval import RetrievalIndex
@@ -108,9 +109,83 @@ class Runtime:
         }
 
 
-def create_app(deployment_path=None):
-    app = FastAPI(title="DRAM 缺陷诊断", version="2.0")
+def create_app(deployment_path=None, v3_deployment_path=None, v3_runtime_override=None):
+    app = FastAPI(title="DRAM 缺陷诊断", version="3.0")
     runtime = Runtime(deployment_path)
+    v3_runtime = v3_runtime_override or DetectionRuntime(
+        v3_deployment_path or os.getenv("DRAM_V3_DEPLOYMENT", "artifacts/deployment-v3.json"))
+
+    @app.get("/api/v3/model/info")
+    def v3_model_info():
+        return v3_runtime.model_info()
+
+    @app.get("/api/v3/model/evaluation")
+    def v3_model_evaluation():
+        deployment = v3_runtime.deployment or {}
+        evaluation = deployment.get("evaluation")
+        evaluation_path = ((v3_runtime.deployment_path.parent / evaluation)
+                           if evaluation and v3_runtime.deployment_path else None)
+        if evaluation_path and evaluation_path.exists():
+            payload = json.loads(evaluation_path.read_text(encoding="utf-8"))
+            payload.pop("records", None)
+            return payload
+        return None
+
+    @app.post("/api/v3/diagnose/upload")
+    async def v3_diagnose_upload(file: UploadFile = File(...)):
+        from PIL import Image
+        if not v3_runtime.ready:
+            raise HTTPException(503, "dram-det-v3 模型未就绪")
+        try:
+            data = await file.read()
+            image = Image.open(io.BytesIO(data))
+            image.verify()
+        except Exception as exc:
+            raise HTTPException(400, "无效图像") from exc
+        suffix = Path(file.filename or "upload.jpg").suffix or ".jpg"
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+            handle.write(data)
+            temporary = Path(handle.name)
+        try:
+            return v3_runtime.diagnose_path(temporary, file.filename or "upload.jpg")
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc)) from exc
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    @app.post("/api/v3/diagnose/batch-upload")
+    async def v3_diagnose_batch_upload(files: list[UploadFile] = File(...)):
+        from PIL import Image
+        if not v3_runtime.ready:
+            raise HTTPException(503, "dram-det-v3 模型未就绪")
+        if len(files) > 200:
+            raise HTTPException(400, "单次最多处理 200 张")
+        results = []
+        import tempfile
+        for file in files:
+            name = file.filename or "upload.jpg"
+            try:
+                data = await file.read()
+                image = Image.open(io.BytesIO(data))
+                image.verify()
+                suffix = Path(name).suffix or ".jpg"
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+                    handle.write(data)
+                    temporary = Path(handle.name)
+                try:
+                    results.append(v3_runtime.diagnose_path(temporary, name))
+                finally:
+                    temporary.unlink(missing_ok=True)
+            except Exception as exc:
+                results.append({"image_name": name, "error": str(exc)})
+        return {"results": results}
+
+    @app.get("/api/v3/review-queue")
+    def v3_review_queue(offset: int = 0, limit: int = 100):
+        limit = min(max(limit, 1), 200)
+        return {"total": len(v3_runtime.review_queue),
+                "items": v3_runtime.review_queue[offset:offset + limit]}
 
     @app.get("/api/model/info")
     def model_info():

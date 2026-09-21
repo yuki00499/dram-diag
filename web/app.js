@@ -3,6 +3,7 @@ const state = {
   model: null,
   diag: { split: "", offset: 0, total: 0, selected: null },
   batch: { mode: "dataset", split: "", files: [], results: null, source: "", previewUrls: {} },
+  v3: { info: null, files: [], results: [], previewUrls: {} },
 };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const SPLIT_ZH = { development: "开发集", train: "训练集", validation: "验证集", test_known: "测试集" };
@@ -19,6 +20,7 @@ const PAGE_META = {
   overview: ["数据概览", "协议信息、缺陷族分布与数据划分"],
   evaluation: ["模型评估", "OOF 证据、标签错误与稳定性分析"],
   diagnose: ["单图诊断", "分类证据、真实标签对照与相似案例"],
+  localize: ["空间定位 v3", "缺陷框、整图诊断、质量属性与风险复核"],
   batch: ["批量诊断", "数据集抽样或上传批量，筛选、对照与导出"],
 };
 
@@ -39,6 +41,7 @@ function switchView(name) {
   $("#view-title").textContent = PAGE_META[name][0];
   $("#view-desc").textContent = PAGE_META[name][1];
   if (name === "diagnose" && !state.diag.loaded) loadDiagGrid(true);
+  if (name === "localize" && !state.v3.info) loadV3Info();
 }
 
 function badgeHtml(status) {
@@ -425,11 +428,118 @@ function openImageDialog(name, subtitle, sourceUrl = "") {
   $("#batch-image-dialog").showModal();
 }
 
+/* ---------- v3 空间定位 ---------- */
+async function loadV3Info() {
+  try {
+    const info = state.v3.info = await api("/api/v3/model/info");
+    $("#v3-model-info").innerHTML = metricHtml([
+      ["状态", info.ready ? "已部署" : "待标注/训练"],
+      ["模型变体", escapeHtml(info.variant || "—")],
+      ["缺陷类别", (info.class_ids || []).length],
+      ["层级一致性", info.hierarchical_head ? "开启" : "关闭"],
+      ["P2 小目标分支", info.p2_head ? "开启" : "关闭"],
+      ["taxonomy", escapeHtml((info.taxonomy_sha256 || "未冻结").slice(0, 12))],
+    ]);
+    $("#v3-run").disabled = !info.ready || !state.v3.files.length;
+    if (!info.ready) $("#v3-results").innerHTML = '<div class="empty">v3 数据与模型尚未冻结；标注完成后在此显示定位结果。v2 功能不受影响。</div>';
+  } catch (error) {
+    $("#v3-model-info").innerHTML = metricHtml([["错误", escapeHtml(error.message)]]);
+  }
+}
+
+function reasonText(reason) {
+  const labels = {
+    global_without_box: "整图判定有缺陷，但未定位到框",
+    box_without_global: "检测到缺陷框，但整图分支否定",
+    global_local_disagreement: "框级与整图概率分歧",
+    predicted_unusable: "图像被判为不可诊断",
+    quality_review: "图像质量需复核",
+    quality_degradation: "检出图像质量退化",
+  };
+  const suffix = reason.class_id == null ? "" : ` · 类别 ${reason.class_id}`;
+  return (labels[reason.code] || reason.code) + suffix;
+}
+
+function v3Overlay(result, url) {
+  const boxes = $("#v3-show-boxes").checked ? (result.detections || []).map(item => {
+    const box = item.bbox_xyxy_normalized || [0,0,0,0];
+    return `<div class="v3-box" style="left:${box[0]*100}%;top:${box[1]*100}%;width:${(box[2]-box[0])*100}%;height:${(box[3]-box[1])*100}%"><span>${escapeHtml(item.class_name)} ${(item.confidence*100).toFixed(1)}%</span></div>`;
+  }).join("") : "";
+  return `<div class="v3-image-stage"><img src="${escapeHtml(url)}" alt="${escapeHtml(result.image_name)}">${boxes}</div>`;
+}
+
+function renderV3Results() {
+  if (!state.v3.results.length) return;
+  $("#v3-results").innerHTML = state.v3.results.map(result => {
+    if (result.error) return `<div class="panel"><strong>${escapeHtml(result.image_name)}</strong><div class="empty">${escapeHtml(result.error)}</div></div>`;
+    const url = state.v3.previewUrls[result.image_name] || "";
+    const globalRows = Object.entries(result.global_defect_probabilities || {}).sort((a,b)=>b[1]-a[1]).map(([id,value]) => `<div><span>类别 ${escapeHtml(id)}</span><strong>${(value*100).toFixed(1)}%</strong></div>`).join("") || "<div><span>无整图输出</span><strong>—</strong></div>";
+    const reasons = (result.review_reasons || []).map(item => `<li>${escapeHtml(reasonText(item))}</li>`).join("") || "<li>无风险规则命中</li>";
+    const flags = (result.quality_flags || []).map(item => `<span class="chip gold">${escapeHtml(item)}</span>`).join(" ") || '<span class="chip gray">无质量退化</span>';
+    return `<article class="panel v3-result-card">
+      <div class="panel-head"><div><h2>${escapeHtml(result.image_name)}</h2><span class="panel-meta">${(result.detections||[]).length} 个框 · ${escapeHtml(result.usability)}</span></div><span class="status-badge ${result.review_required ? "gold" : "green"}">${result.review_required ? "需人工复核" : "可直接采用"}</span></div>
+      <div class="v3-result-grid">${v3Overlay(result,url)}<div class="v3-evidence"><h3>整图缺陷概率</h3><div class="v3-prob-grid">${globalRows}</div><h3>质量属性</h3><div>${flags}</div><h3>复核解释</h3><ul>${reasons}</ul><p class="panel-meta">max disagreement ${(Number(result.max_disagreement)||0).toFixed(3)}</p></div></div>
+    </article>`;
+  }).join("");
+  $("#v3-export").disabled = false;
+}
+
+async function runV3() {
+  const form = new FormData(); state.v3.files.forEach(file => form.append("files", file));
+  const payload = await api("/api/v3/diagnose/batch-upload", { method:"POST", body:form });
+  state.v3.results = payload.results || []; renderV3Results(); await loadV3Queue();
+}
+
+async function loadV3Queue() {
+  try {
+    const queue = await api("/api/v3/review-queue?limit=200");
+    $("#v3-queue-count").textContent = `${queue.total} 条`;
+    const rows = (queue.items || []).map(item => `<tr><td class="mono">${escapeHtml(item.image_name)}</td><td>${(item.detections||[]).length}</td><td class="mono">${Number(item.review_score||0).toFixed(3)}</td><td class="mono">${Number(item.max_disagreement||0).toFixed(3)}</td><td>${(item.review_reasons||[]).map(reasonText).map(escapeHtml).join("<br>")}</td></tr>`).join("");
+    $("#v3-review-table").innerHTML = `<thead><tr><th>图像</th><th>框</th><th>风险</th><th>最大分歧</th><th>复核原因</th></tr></thead><tbody>${rows || '<tr><td colspan="5">当前无需复核记录</td></tr>'}</tbody>`;
+  } catch (_) {}
+}
+
+function exportV3Csv() {
+  const header = ["image_name","class_id","class_name","confidence","x1","y1","x2","y2","nx1","ny1","nx2","ny2","global_probabilities","quality_flags","usability","review_required","review_reasons","protocol_version","model_version","taxonomy_sha256","checkpoint_sha256"];
+  const rows = [];
+  state.v3.results.filter(item=>!item.error).forEach(result => {
+    const detections = result.detections?.length ? result.detections : [null];
+    detections.forEach(item => rows.push([
+      result.image_name,item?.class_id??"",item?.class_name??"",item?.confidence??"",...(item?.bbox_xyxy||["","","",""]),...(item?.bbox_xyxy_normalized||["","","",""]),
+      JSON.stringify(result.global_defect_probabilities||{}), (result.quality_flags||[]).join("|"),result.usability,
+      result.review_required?1:0,JSON.stringify(result.review_reasons||[]),result.protocol_version,result.model_version,result.taxonomy_sha256,result.checkpoint_sha256]));
+  });
+  const quote=value=>`"${String(value??"").replaceAll('"','""')}"`;
+  const blob=new Blob(["\uFEFF"+[header,...rows].map(row=>row.map(quote).join(",")).join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download="dram_det_v3_predictions.csv";link.click();URL.revokeObjectURL(link.href);
+}
+
 /* ---------- 事件绑定 ---------- */
 document.querySelectorAll(".nav-btn").forEach(button => button.addEventListener("click", () => {
   switchView(button.dataset.view);
   if (button.dataset.view === "evaluation") loadEvaluation();
 }));
+
+$("#v3-files").addEventListener("change", event => {
+  Object.values(state.v3.previewUrls).forEach(url => URL.revokeObjectURL(url));
+  state.v3.previewUrls = {};
+  state.v3.files = [...event.target.files].slice(0, 200);
+  state.v3.files.forEach(file => { state.v3.previewUrls[file.name] = URL.createObjectURL(file); });
+  $("#v3-file-count").textContent = state.v3.files.length ? `已选 ${state.v3.files.length} 张` : "未选择文件";
+  $("#v3-run").disabled = !state.v3.info?.ready || !state.v3.files.length;
+});
+const v3Dropzone = $("#v3-dropzone");
+v3Dropzone.addEventListener("dragover", event => { event.preventDefault(); v3Dropzone.classList.add("dragover"); });
+v3Dropzone.addEventListener("dragleave", () => v3Dropzone.classList.remove("dragover"));
+v3Dropzone.addEventListener("drop", event => { event.preventDefault(); v3Dropzone.classList.remove("dragover"); $("#v3-files").files = event.dataTransfer.files; $("#v3-files").dispatchEvent(new Event("change")); });
+$("#v3-run").addEventListener("click", async () => {
+  $("#v3-run").disabled = true; $("#v3-results").innerHTML = '<div class="empty">正在执行层级定位…</div>';
+  try { await runV3(); } catch (error) { $("#v3-results").innerHTML = `<div class="panel"><div class="empty">${escapeHtml(error.message)}</div></div>`; }
+  finally { $("#v3-run").disabled = !state.v3.info?.ready || !state.v3.files.length; }
+});
+$("#v3-refresh-queue").addEventListener("click", loadV3Queue);
+$("#v3-export").addEventListener("click", exportV3Csv);
+$("#v3-show-boxes").addEventListener("change", renderV3Results);
 
 document.querySelectorAll("#diag-mode .seg-btn").forEach(button => button.addEventListener("click", () => {
   document.querySelectorAll("#diag-mode .seg-btn").forEach(x => x.classList.toggle("active", x === button));

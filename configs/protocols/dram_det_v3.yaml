@@ -1,0 +1,12 @@
+protocol_version: dram-det-v3
+task: hierarchical_detection
+annotation_schema_version: 3
+taxonomy: configs/taxonomy_v3.yaml
+annotations: annotations/dram_det_v3.json
+data_root: 晶圆缺陷分类数据集
+holdout_ratio: 0.1
+cv_folds: 5
+split_seed: 20260920
+pilot_size: 100
+review_ratio: 0.2
+small_object_area_px_at_640: 1024
