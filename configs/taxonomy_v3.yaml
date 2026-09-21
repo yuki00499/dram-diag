@@ -1,9 +1,92 @@
 schema_version: 3
 status: draft
 description: >-
-  DRAM SEM v3 类别定义源。缺陷类别必须由领域人员在100张试标后从零审批；
+  DRAM SEM v3 类别定义源。以下六类为试标候选类别，必须由领域人员在100张试标后审批；
   在 status 改为 frozen 之前，数据导出和正式训练命令将拒绝运行。
-object_classes: []
+object_classes:
+  - id: 0
+    slug: rounded_particle
+    name_zh: 近圆形颗粒
+    name_en: Rounded Particle
+    approval_status: candidate
+    definition: >-
+      独立的颗粒状对象，整体轮廓近圆或短椭圆，无明显长轴、直边和尖角。
+      不称为 Spherical Particle，因为二维图像不能确认球形。
+    boundary_rule: >-
+      使用紧贴颗粒可见实体轮廓的最小外接矩形；不包含外围光晕、阴影或邻近结构。
+      与其他对象粘连且无法可靠分界时标为争议区域。
+    positive_examples: [image_242.jpg, image_240.jpg]
+    negative_examples: []
+    confusable_with: [irregular_particle, localized_surface_anomaly]
+  - id: 1
+    slug: elongated_particle
+    name_zh: 细长颗粒
+    name_en: Elongated Particle
+    approval_status: candidate
+    definition: >-
+      独立颗粒有明显长轴，呈棒状、针状或长椭圆状，能够辨认其端部和侧边。
+    boundary_rule: >-
+      框住包含两端和两侧边的完整颗粒实体，采用紧致最小外接矩形；
+      若异常沿表面连续延伸、无法辨认独立端部，则优先考虑线状表面异常。
+    positive_examples: [image_237.jpg, image_431.jpg]
+    negative_examples: []
+    confusable_with: [linear_surface_anomaly, irregular_particle]
+  - id: 2
+    slug: angular_particle
+    name_zh: 棱角状颗粒
+    name_en: Angular Particle
+    approval_status: candidate
+    definition: >-
+      独立颗粒具有清楚的直边、尖角或多边形轮廓；不限于方形，
+      也不据此认定其为晶体。
+    boundary_rule: >-
+      框住包括所有可见尖角和直边的完整颗粒实体，采用紧致最小外接矩形；
+      边界不足以稳定判断直边或尖角时标为争议区域。
+    positive_examples: [image_318.jpg, image_596.jpg]
+    negative_examples: []
+    confusable_with: [rounded_particle, irregular_particle]
+  - id: 3
+    slug: irregular_particle
+    name_zh: 不规则颗粒
+    name_en: Irregular Particle
+    approval_status: candidate
+    definition: >-
+      可辨认的独立颗粒状对象，轮廓呈不规则块状、多叶状或团簇状，
+      不符合近圆形、细长或棱角状颗粒定义。不用本类收纳所有看不清的对象。
+    boundary_rule: >-
+      框住同一连通颗粒或不可分团簇的完整可见实体，采用紧致最小外接矩形；
+      仅因模糊、遮挡或低信号而无法分类的对象标为争议区域，不归入本类。
+    positive_examples: [image_671.jpg, image_705.jpg]
+    negative_examples: []
+    confusable_with: [rounded_particle, elongated_particle, angular_particle, localized_surface_anomaly]
+  - id: 4
+    slug: linear_surface_anomaly
+    name_zh: 线状表面异常
+    name_en: Linear Surface Anomaly
+    approval_status: candidate
+    definition: >-
+      以线或窄带为主的非正常表面特征，可呈连续、断续或弯曲形态；
+      暂不强行区分划痕、裂纹与沟槽。
+    boundary_rule: >-
+      沿异常的完整可见走向框住线或窄带，宽度只包含异常本体；
+      空间上相互独立的线状异常分别标框，正常工艺纹理不标注。
+    positive_examples: [image_945.jpg]
+    negative_examples: []
+    confusable_with: [elongated_particle, localized_surface_anomaly]
+  - id: 5
+    slug: localized_surface_anomaly
+    name_zh: 局部面状表面异常
+    name_en: Localized Surface Anomaly
+    approval_status: candidate
+    definition: >-
+      以局部二维区域为主体，呈坑状、片状缺损或明显边界包围的异常区域；
+      暂不认定为内部空洞、腐蚀或分层。
+    boundary_rule: >-
+      框住异常二维区域的完整可见边界，采用紧致最小外接矩形；
+      无法确定区域边界或无法排除成像伪影时标为争议区域。
+    positive_examples: [image_84.jpg, image_1050.jpg]
+    negative_examples: []
+    confusable_with: [rounded_particle, irregular_particle, linear_surface_anomaly]
 quality_attributes:
   - id: low_signal
     name_zh: 低信号
