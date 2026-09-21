@@ -5,5 +5,4 @@ hierarchical_head: true
 consistency_weight: 0.2
 consistency_warmup_epochs: 10
 global_defect_weight: 0.5
-quality_weight: 0.25
 usability_weight: 0.25

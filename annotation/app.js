@@ -14,7 +14,7 @@ function colorFor(id) { return COLORS[Number(id) % COLORS.length]; }
 function taxonomyHash() { return config.taxonomy.taxonomy_sha256; }
 
 function emptyRecord(width, height) {
-  return { width, height, objects: [], quality_attributes: [], usability: "review", ignore_regions: [],
+  return { width, height, objects: [], usability: "review", ignore_regions: [],
     review: { status: "unreviewed", note: "", secondary_objects: [], secondary_ignore_regions: [] } };
 }
 
@@ -64,18 +64,6 @@ function buildControls() {
     button.onclick = () => { selectedClass = Number(item.id); ignoreMode = false; selected = null; renderAll(); };
     button.dataset.classId = item.id;
     classList.appendChild(button);
-  });
-  const qualities = $("qualities");
-  qualities.innerHTML = "";
-  config.taxonomy.quality_attributes.forEach(item => {
-    const label = document.createElement("label");
-    label.innerHTML = `<input type="checkbox" value="${escapeHtml(item.id)}"> ${escapeHtml(item.name_zh)} <small>${escapeHtml(item.name_en)}</small>`;
-    label.querySelector("input").onchange = event => {
-      const before = clone(record()), values = new Set(record().quality_attributes);
-      event.target.checked ? values.add(item.id) : values.delete(item.id);
-      record().quality_attributes = [...values].sort(); commit(before);
-    };
-    qualities.appendChild(label);
   });
   const usability = $("usability"); usability.innerHTML = "";
   const labels = { usable: "可用", review: "待复核", unusable: "不可用" };
@@ -130,7 +118,6 @@ function renderAll() {
   });
   $("ignore-mode").classList.toggle("selected", ignoreMode);
   $("mode-label").textContent = ignoreMode ? "拖动创建争议/忽略区域" : selectedClass == null ? "选择缺陷类别后拖动画框" : `下一个框：${classInfo(selectedClass)?.name_zh || selectedClass}（可换类继续画）`;
-  document.querySelectorAll("#qualities input").forEach(input => input.checked = record().quality_attributes.includes(input.value));
   document.querySelectorAll("#usability button").forEach(button => button.classList.toggle("selected", button.dataset.value === record().usability));
   $("review-status").value = record().review?.status || "unreviewed"; $("review-note").value = record().review?.note || "";
   $("blind-review").textContent = blindReview ? "退出盲复核（查看主标）" : "进入盲复核";

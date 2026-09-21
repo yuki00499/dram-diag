@@ -20,7 +20,7 @@ const PAGE_META = {
   overview: ["数据概览", "协议信息、缺陷族分布与数据划分"],
   evaluation: ["模型评估", "OOF 证据、标签错误与稳定性分析"],
   diagnose: ["单图诊断", "分类证据、真实标签对照与相似案例"],
-  localize: ["空间定位 v3", "缺陷框、整图诊断、质量属性与风险复核"],
+  localize: ["空间定位 v3", "缺陷框、整图诊断、可诊断性与风险复核"],
   batch: ["批量诊断", "数据集抽样或上传批量，筛选、对照与导出"],
 };
 
@@ -453,8 +453,7 @@ function reasonText(reason) {
     box_without_global: "检测到缺陷框，但整图分支否定",
     global_local_disagreement: "框级与整图概率分歧",
     predicted_unusable: "图像被判为不可诊断",
-    quality_review: "图像质量需复核",
-    quality_degradation: "检出图像质量退化",
+    quality_review: "图像需人工复核",
   };
   const suffix = reason.class_id == null ? "" : ` · 类别 ${reason.class_id}`;
   return (labels[reason.code] || reason.code) + suffix;
@@ -475,10 +474,9 @@ function renderV3Results() {
     const url = state.v3.previewUrls[result.image_name] || "";
     const globalRows = Object.entries(result.global_defect_probabilities || {}).sort((a,b)=>b[1]-a[1]).map(([id,value]) => `<div><span>类别 ${escapeHtml(id)}</span><strong>${(value*100).toFixed(1)}%</strong></div>`).join("") || "<div><span>无整图输出</span><strong>—</strong></div>";
     const reasons = (result.review_reasons || []).map(item => `<li>${escapeHtml(reasonText(item))}</li>`).join("") || "<li>无风险规则命中</li>";
-    const flags = (result.quality_flags || []).map(item => `<span class="chip gold">${escapeHtml(item)}</span>`).join(" ") || '<span class="chip gray">无质量退化</span>';
     return `<article class="panel v3-result-card">
       <div class="panel-head"><div><h2>${escapeHtml(result.image_name)}</h2><span class="panel-meta">${(result.detections||[]).length} 个框 · ${escapeHtml(result.usability)}</span></div><span class="status-badge ${result.review_required ? "gold" : "green"}">${result.review_required ? "需人工复核" : "可直接采用"}</span></div>
-      <div class="v3-result-grid">${v3Overlay(result,url)}<div class="v3-evidence"><h3>整图缺陷概率</h3><div class="v3-prob-grid">${globalRows}</div><h3>质量属性</h3><div>${flags}</div><h3>复核解释</h3><ul>${reasons}</ul><p class="panel-meta">max disagreement ${(Number(result.max_disagreement)||0).toFixed(3)}</p></div></div>
+      <div class="v3-result-grid">${v3Overlay(result,url)}<div class="v3-evidence"><h3>整图缺陷概率</h3><div class="v3-prob-grid">${globalRows}</div><h3>复核解释</h3><ul>${reasons}</ul><p class="panel-meta">max disagreement ${(Number(result.max_disagreement)||0).toFixed(3)}</p></div></div>
     </article>`;
   }).join("");
   $("#v3-export").disabled = false;
@@ -500,13 +498,13 @@ async function loadV3Queue() {
 }
 
 function exportV3Csv() {
-  const header = ["image_name","class_id","class_name","confidence","x1","y1","x2","y2","nx1","ny1","nx2","ny2","global_probabilities","quality_flags","usability","review_required","review_reasons","protocol_version","model_version","taxonomy_sha256","checkpoint_sha256"];
+  const header = ["image_name","class_id","class_name","confidence","x1","y1","x2","y2","nx1","ny1","nx2","ny2","global_probabilities","usability","review_required","review_reasons","protocol_version","model_version","taxonomy_sha256","checkpoint_sha256"];
   const rows = [];
   state.v3.results.filter(item=>!item.error).forEach(result => {
     const detections = result.detections?.length ? result.detections : [null];
     detections.forEach(item => rows.push([
       result.image_name,item?.class_id??"",item?.class_name??"",item?.confidence??"",...(item?.bbox_xyxy||["","","",""]),...(item?.bbox_xyxy_normalized||["","","",""]),
-      JSON.stringify(result.global_defect_probabilities||{}), (result.quality_flags||[]).join("|"),result.usability,
+      JSON.stringify(result.global_defect_probabilities||{}),result.usability,
       result.review_required?1:0,JSON.stringify(result.review_reasons||[]),result.protocol_version,result.model_version,result.taxonomy_sha256,result.checkpoint_sha256]));
   });
   const quote=value=>`"${String(value??"").replaceAll('"','""')}"`;

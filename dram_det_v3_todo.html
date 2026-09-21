@@ -120,7 +120,7 @@ python -m pip install -e . --no-build-isolation</code><button class="copy">复�
       <div class="phase-head"><div class="phase-no">2</div><div><h2>批准并锁定新标签体系</h2><p>这是后续全量标注的硬门槛。</p></div></div>
       <div class="tasks">
         <label class="task"><input type="checkbox"><div><div class="task-title">领域人员复盘 100 张试标</div><div class="task-body">逐类查看正例、反例、共现和争议样本，合并无法稳定区分的类别，拆分定义过宽的类别。</div></div></label>
-        <label class="task"><input type="checkbox"><div><div class="task-title">检查类别 ID 与定义完整性</div><div class="task-body">类别 ID 必须从 <code>0</code> 开始连续递增；代码和模型不得硬编码旧标签编号。质量属性是整图多选项，不应混进缺陷框类别。</div></div></label>
+        <label class="task"><input type="checkbox"><div><div class="task-title">检查类别 ID 与定义完整性</div><div class="task-body">类别 ID 必须从 <code>0</code> 开始连续递增；代码和模型不得硬编码旧标签编号。</div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">领域负责人书面批准 taxonomy</div><div class="task-body">确认每类的中英文名称、定义、正反例、边界规则和易混类别已经可执行。</div><div class="gate">通过后才把 <span class="path">configs/taxonomy_v3.yaml</span> 改为 <code>status: frozen</code>。冻结后若再改类别，必须重新开始对应标注版本，不能静默修改。</div></div></label>
       </div>
     </section>
@@ -128,7 +128,7 @@ python -m pip install -e . --no-build-isolation</code><button class="copy">复�
     <section class="card" id="phase-3">
       <div class="phase-head"><div class="phase-no">3</div><div><h2>完成 1150 张全量主标</h2><p>源 JSON 是事实来源，YOLO 标签不是。</p></div></div>
       <div class="tasks">
-        <label class="task"><input type="checkbox"><div><div class="task-title">清理试标遗留的错误类别后开始全量标注</div><div class="task-body">每张图填写缺陷框、类别、质量属性、可诊断性和必要的忽略区域。格式允许同类多框，但系统会提示复核。</div></div></label>
+        <label class="task"><input type="checkbox"><div><div class="task-title">清理试标遗留的错误类别后开始全量标注</div><div class="task-body">每张图填写缺陷框、类别、可诊断性和必要的忽略区域。格式允许同类多框，但系统会提示复核。</div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">每完成一批就保存并备份源 JSON</div><div class="task-body">点击标注站“保存到项目”，同时定期导出 JSON 备份。主文件为 <span class="path">annotations/dram_det_v3.json</span>。</div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">为全部图片设置主标完成状态</div><div class="task-body">完成一张后将复核状态设为 <code>primary_complete</code>。不要用 <code>unusable</code> 代替“尚未标完”。</div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">运行阶段性审计</div><div class="command"><code>python scripts\audit_detection_dataset.py</code><button class="copy">复制</button></div><div class="task-body">重点处理越界框、零面积框、无效类别、遗漏图片、忽略区域冲突和同类重复实例。</div></div></label>
@@ -176,7 +176,7 @@ python -m pip install -e . --no-build-isolation</code><button class="copy">复�
   --data artifacts\dram_det_v3\yolo\fold-0\data.yaml
 # 将 b0 依次替换为 b1、b2、b3</code><button class="copy">复制</button></div><div class="task-body">确认显存、自适应 batch、loss、P2 尺度和层级头均正常，再启动长训练。</div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">完成 4 个变体 × 5 折训练</div><div class="task-body">共 20 个训练任务。每次保留 <code>v3_provenance.json</code>、best/last checkpoint、配置哈希和预训练权重哈希。</div></div></label>
-        <label class="task"><input type="checkbox"><div><div class="task-title">生成 development/OOF 预测记录</div><div class="task-body">每张 development 图像只能使用其所属验证折的模型预测。记录框、整图概率、质量概率、可诊断概率、复核分数、延迟和显存；不要使用 test_known 调阈值。</div></div></label>
+        <label class="task"><input type="checkbox"><div><div class="task-title">生成 development/OOF 预测记录</div><div class="task-body">每张 development 图像只能使用其所属验证折的模型预测。记录框、整图概率、可诊断概率、复核分数、延迟和显存；不要使用 test_known 调阈值。</div></div></label>
       </div>
     </section>
 
@@ -189,7 +189,6 @@ python -m pip install -e . --no-build-isolation</code><button class="copy">复�
   --b2 artifacts\dram_det_v3\eval\B2.json `
   --b3 artifacts\dram_det_v3\eval\B3.json `
   --classes &lt;0,1,...&gt; `
-  --quality-attributes &lt;low_signal,blur,noise,...&gt; `
   --out artifacts\dram_det_v3\ablation_report.json</code><button class="copy">复制</button></div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">按门槛决定是否保留 I1/I2</div><div class="decision"><div><strong>I1 层级一致性</strong>mAP50-95 下降 ≤ 0.5pp；20% 复核预算下漏检减少 ≥ 20%。</div><div><strong>I2 P2</strong>AP-small 提升 ≥ 2pp；总体 mAP 下降 ≤ 0.5pp；时延 ≤ B0 的 1.5 倍。</div><div><strong>B3</strong>必须同时满足两组门槛，否则部署表现更好的单项模型。</div></div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">锁定所有推理决策</div><div class="task-body">书面记录最终变体、checkpoint、置信度阈值、整图阈值、分歧阈值、复核规则、taxonomy 和 manifest 哈希。锁定后禁止再根据测试集调整。</div></div></label>
@@ -207,7 +206,7 @@ python -m pip install -e . --no-build-isolation</code><button class="copy">复�
         <label class="task"><input type="checkbox"><div><div class="task-title">再次确认五项全部锁定</div><div class="task-body"><span class="tag danger-tag">类别</span><span class="tag danger-tag">模型</span><span class="tag danger-tag">阈值</span><span class="tag danger-tag">复核规则</span><span class="tag danger-tag">checkpoint 哈希</span></div><div class="gate">任意一项仍可能调整，就不要执行下一条命令。</div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">执行唯一一次测试评估</div><div class="command"><code>python scripts\evaluate_detection_test.py `
   --deployment artifacts\deployment-v3-eval.json</code><button class="copy">复制</button></div><div class="task-body">成功后生成 <code>test_report.json</code> 与 <code>test_consumed.lock</code>。不得删除锁文件后重复调参测试。</div></div></label>
-        <label class="task"><input type="checkbox"><div><div class="task-title">核对最终指标是否完整</div><div class="task-body">至少包括 Box mAP50-95/mAP50、P/R、各类 AP/Recall、AP-small、漏检数、整图 Macro-F1、质量 Macro-F1、可诊断 AUROC、20% 复核收益、延迟、峰值显存和模型大小。</div></div></label>
+        <label class="task"><input type="checkbox"><div><div class="task-title">核对最终指标是否完整</div><div class="task-body">至少包括 Box mAP50-95/mAP50、P/R、各类 AP/Recall、AP-small、漏检数、整图 Macro-F1、可诊断 AUROC、20% 复核收益、延迟、峰值显存和模型大小。</div></div></label>
       </div>
     </section>
 
@@ -222,7 +221,7 @@ python -m pip install -e . --no-build-isolation</code><button class="copy">复�
   --out artifacts\deployment-v3.json</code><button class="copy">复制</button></div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">启动服务并检查 v3 页面</div><div class="command"><code>$env:DRAM_V3_DEPLOYMENT = "artifacts/deployment-v3.json"
 python scripts\serve.py --port 8010</code><button class="copy">复制</button></div><div class="task-body">打开 <code>http://127.0.0.1:8010</code>，进入“空间定位 v3”。</div></div></label>
-        <label class="task"><input type="checkbox"><div><div class="task-title">完成 API 与 UI 验收</div><div class="task-body"><ul><li>检测框位置和显隐开关正确；</li><li>整图缺陷、质量属性和可诊断性正确展示；</li><li>全局—局部分歧有结构化原因；</li><li>复核队列按风险排序；</li><li>CSV 含像素框、归一化框、质量、复核原因和全部哈希；</li><li>旧 v2 单图、批量和相似案例功能仍可使用。</li></ul></div></div></label>
+        <label class="task"><input type="checkbox"><div><div class="task-title">完成 API 与 UI 验收</div><div class="task-body"><ul><li>检测框位置和显隐开关正确；</li><li>整图缺陷和可诊断性正确展示；</li><li>全局—局部分歧有结构化原因；</li><li>复核队列按风险排序；</li><li>CSV 含像素框、归一化框、复核原因和全部哈希；</li><li>旧 v2 单图、批量和相似案例功能仍可使用。</li></ul></div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">归档最终交付物</div><div class="task-body">归档 taxonomy、冻结源标注、审计报告、manifest、5 折导出记录、20 个训练 provenance、消融报告、测试锁、最终 checkpoint、部署清单和第三方许可说明。</div><div class="gate success">完成标准：结果可复现、测试只消费一次、每个预测均可追溯到协议、类别和 checkpoint 哈希。</div></div></label>
       </div>
     </section>

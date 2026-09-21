@@ -15,7 +15,7 @@
 
 ## dram-det-v3：框定位与风险复核
 
-v3 将 YOLO26 作为共享特征主干，同时输出缺陷框、整图缺陷概率、质量属性与
+v3 将 YOLO26 作为共享特征主干，同时输出缺陷框、整图缺陷概率与
 可诊断状态。B1/B3 使用官方 P2（stride 4）结构；B2/B3 从检测多尺度特征池化
 整图诊断，并对 pre-NMS 类别分数施加 10 epoch 线性 warm-up 的全局—局部一致性
 损失。`unusable`、`review` 和带争议区域的图像只进入独立的全局监督流，不会作为
@@ -48,7 +48,7 @@ python scripts\train_detection.py `
 # 5. 汇总四组结果并按预注册门槛判定是否保留创新
 python scripts\evaluate_detection_ablations.py `
   --b0 <B0.json> --b1 <B1.json> --b2 <B2.json> --b3 <B3.json> `
-  --classes <0,1,...> --quality-attributes <blur,noise,...> `
+  --classes <0,1,...> `
   --out artifacts\dram_det_v3\ablation_report.json
 
 # 仅在类别、阈值、复核规则和 checkpoint 全部锁定后执行；成功后写入消费锁
