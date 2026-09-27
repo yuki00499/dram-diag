@@ -11,6 +11,10 @@ test("pending review class filter counts multi-label images and skips reviewed i
     return elements.get(id);
   };
   element("canvas").getContext = () => ({});
+  element("review-filter").value = "all";
+  element("review-filter").options = [
+    {value: "all"}, {value: "usability_review"}, {value: "annotation_pending"},
+  ];
   element("filter-class").value = "all";
   element("filter-class").options = [
     {value: "all", dataset: {label: "全部类别"}},
@@ -28,10 +32,10 @@ test("pending review class filter counts multi-label images and skips reviewed i
   vm.runInContext(`
     config = {images: ["a.jpg", "b.jpg", "c.jpg", "d.jpg"], total: 4, review_sample: ["a.jpg", "b.jpg"]};
     payload = {images: {
-      "a.jpg": {review: {status: "unreviewed"}, objects: [{class_id: 0}, {class_id: 1}]},
-      "b.jpg": {review: {status: "reviewed"}, objects: [{class_id: 1}]},
-      "c.jpg": {review: {status: "primary_complete"}, objects: []},
-      "d.jpg": {review: {status: "disputed"}, objects: [{class_id: 0}]},
+      "a.jpg": {usability: "usable", review: {status: "unreviewed"}, objects: [{class_id: 0}, {class_id: 1}]},
+      "b.jpg": {usability: "review", review: {status: "reviewed"}, objects: [{class_id: 1}]},
+      "c.jpg": {usability: "review", review: {status: "primary_complete"}, objects: []},
+      "d.jpg": {usability: "usable", review: {status: "disputed"}, objects: [{class_id: 0}]},
     }};
     position = 0;
     image = {complete: true};
@@ -39,13 +43,21 @@ test("pending review class filter counts multi-label images and skips reviewed i
     loadImage = () => {};
   `, context);
 
-  element("only-pending-review").checked = true;
+  element("review-filter").value = "annotation_pending";
   element("filter-class").value = "0";
   assert.deepEqual(Array.from(vm.runInContext("updateFilterUi()", context)), [0, 3]);
+  assert.equal(element("review-filter").options[1].textContent, "可诊断性：待复核（0 张）");
+  assert.equal(element("review-filter").options[2].textContent, "标注复核：未完成（2 张）");
   assert.equal(element("filter-class").options[2].textContent, "近圆形颗粒（2 张）");
   assert.equal(element("filter-class").options[3].textContent, "细长颗粒（1 张）");
-  vm.runInContext("navigate(1)", context);
+  element("jump").onkeydown({key: "Enter", target: {value: "2"}});
   assert.equal(vm.runInContext("position", context), 3);
+
+  element("review-filter").value = "usability_review";
+  element("filter-class").value = "1";
+  assert.deepEqual(Array.from(vm.runInContext("filteredIndices()", context)), [1]);
+  element("review-filter").value = "annotation_pending";
+  element("filter-class").value = "0";
 
   vm.runInContext('payload.images["d.jpg"].review.status = "reviewed"; refreshVisibleImage()', context);
   assert.equal(vm.runInContext("position", context), 0);

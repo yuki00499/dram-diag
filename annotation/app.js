@@ -89,8 +89,10 @@ function buildControls() {
 function pendingReview(row) { return !row || row.review?.status !== "reviewed"; }
 function baseFilterMatches(name) {
   const row = payload.images[name];
-  return (!$("only-pending-review").checked || pendingReview(row))
-    && (!$("only-review-sample").checked || (config.review_sample || []).includes(name));
+  const reviewFilter = $("review-filter").value;
+  const statusMatches = reviewFilter === "usability_review" ? row?.usability === "review"
+    : reviewFilter === "annotation_pending" ? pendingReview(row) : true;
+  return statusMatches && (!$("only-review-sample").checked || (config.review_sample || []).includes(name));
 }
 function classFilterMatches(row, selectedValue) {
   if (selectedValue === "all") return true;
@@ -103,6 +105,18 @@ function filteredIndices() {
     baseFilterMatches(name) && classFilterMatches(payload.images[name], selectedValue) ? [index] : []);
 }
 function updateFilterUi() {
+  const selectedClass = $("filter-class").value;
+  const sampleNames = config.images.filter(name => !$("only-review-sample").checked || (config.review_sample || []).includes(name));
+  const statusCandidates = sampleNames.filter(name => classFilterMatches(payload.images[name], selectedClass));
+  const statusCounts = {
+    all: statusCandidates.length,
+    usability_review: statusCandidates.filter(name => payload.images[name]?.usability === "review").length,
+    annotation_pending: statusCandidates.filter(name => pendingReview(payload.images[name])).length,
+  };
+  const statusLabels = {all: "全部图片", usability_review: "可诊断性：待复核", annotation_pending: "标注复核：未完成"};
+  Array.from($("review-filter").options).forEach(option => {
+    option.textContent = `${statusLabels[option.value]}（${statusCounts[option.value]} 张）`;
+  });
   const baseNames = config.images.filter(baseFilterMatches), counts = new Map();
   let emptyCount = 0;
   baseNames.forEach(name => {
@@ -110,7 +124,7 @@ function updateFilterUi() {
     if (!objects.length) emptyCount++;
     new Set(objects.map(obj => Number(obj.class_id))).forEach(id => counts.set(id, (counts.get(id) || 0) + 1));
   });
-  const selectedValue = $("filter-class").value;
+  const selectedValue = selectedClass;
   Array.from($("filter-class").options).forEach(option => {
     const count = option.value === "all" ? baseNames.length : option.value === "none" ? emptyCount : counts.get(Number(option.value)) || 0;
     option.textContent = `${option.dataset.label}（${count} 张）`;
@@ -118,7 +132,9 @@ function updateFilterUi() {
     option.hidden = count === 0 && option.value !== "all" && option.value !== selectedValue;
   });
   const matches = filteredIndices(), rank = matches.indexOf(position);
-  $("filter-summary").textContent = `当前筛选 ${matches.length} / ${config.total} 张；一张多标签图片会出现在每个对应类别中。${$("only-pending-review").checked ? "待复核包括未复核、主标完成和存在争议。" : ""}`;
+  const reviewHint = $("review-filter").value === "usability_review" ? "可诊断性为待复核。"
+    : $("review-filter").value === "annotation_pending" ? "标注状态为未复核、主标完成或存在争议。" : "";
+  $("filter-summary").textContent = `当前筛选 ${matches.length} / ${config.total} 张。${reviewHint}多标签图片会出现在每个对应类别中。`;
   $("position").textContent = rank < 0 ? `筛选结果 ${matches.length} 张` : `筛选 ${rank + 1} / ${matches.length} · 全部 ${position + 1} / ${config.total}`;
   $("prev").disabled = $("next").disabled = matches.length === 0;
   return matches;
@@ -221,9 +237,10 @@ function renderObjects() {
 function renderStats() {
   const records = Object.values(payload.images), objects = records.reduce((sum,row)=>sum+(row.objects?.length||0),0);
   const reviewed = records.filter(row => ["reviewed","primary_complete"].includes(row.review?.status)).length;
-  const pending = records.filter(pendingReview).length;
+  const pending = records.filter(row => row.usability === "review").length;
+  const annotationPending = records.filter(pendingReview).length;
   const secondary = records.reduce((sum,row)=>sum+(row.review?.secondary_objects?.length||0),0);
-  $("stats").innerHTML = `<span>已打开/总数</span><strong>${records.length}/${config.total}</strong><span>主标框</span><strong>${objects}</strong><span>盲复核框</span><strong>${secondary}</strong><span>待复核图片</span><strong>${pending}</strong><span>已审/主标完成</span><strong>${reviewed}</strong><span>争议区域</span><strong>${records.reduce((s,r)=>s+(r.ignore_regions?.length||0),0)}</strong>`;
+  $("stats").innerHTML = `<span>已打开/总数</span><strong>${records.length}/${config.total}</strong><span>主标框</span><strong>${objects}</strong><span>盲复核框</span><strong>${secondary}</strong><span>可诊断性待复核</span><strong>${pending}</strong><span>标注复核未完成</span><strong>${annotationPending}</strong><span>已审/主标完成</span><strong>${reviewed}</strong><span>争议区域</span><strong>${records.reduce((s,r)=>s+(r.ignore_regions?.length||0),0)}</strong>`;
 }
 
 function point(event) { const rect=canvas.getBoundingClientRect(); return [
@@ -267,10 +284,10 @@ function navigate(delta){ const matches=updateFilterUi(); if(!matches.length)ret
 function escapeHtml(value){ const div=document.createElement("div");div.textContent=String(value??"");return div.innerHTML; }
 
 $("prev").onclick=()=>navigate(-1); $("next").onclick=()=>navigate(1); $("undo").onclick=undo; $("redo").onclick=redo;
-$("only-pending-review").onchange=refreshVisibleImage; $("only-review-sample").onchange=refreshVisibleImage; $("filter-class").onchange=refreshVisibleImage;
+$("review-filter").onchange=refreshVisibleImage; $("only-review-sample").onchange=refreshVisibleImage; $("filter-class").onchange=refreshVisibleImage;
 $("blind-review").onclick=()=>{blindReview=!blindReview;selected=null;pointerAction=null;renderAll();};
 $("ignore-mode").onclick=()=>{ignoreMode=!ignoreMode;selected=null;renderAll();}; $("show-labels").onchange=renderCanvas;
-$("jump").onkeydown=event=>{if(event.key!=="Enter")return;const raw=event.target.value.trim();let index=/^\d+$/.test(raw)?Number(raw)-1:config.images.indexOf(raw);if(index>=0&&index<config.total){if(!filteredIndices().includes(index)){message("该图片不在当前筛选结果中，请调整筛选条件。",true);return;}position=index;loadImage();event.target.value="";}};
+$("jump").onkeydown=event=>{if(event.key!=="Enter")return;const raw=event.target.value.trim(),matches=filteredIndices();const index=/^\d+$/.test(raw)?matches[Number(raw)-1]:config.images.indexOf(raw);if(index==null||index<0||!matches.includes(index)){message(`当前筛选共 ${matches.length} 张；请输入筛选序号或范围内的图片名。`,true);return;}position=index;loadImage();event.target.value="";};
 $("review-status").onchange=event=>{const before=clone(record());record().review=record().review||{};record().review.status=event.target.value;commit(before);};
 $("review-note").onchange=event=>{const before=clone(record());record().review=record().review||{};record().review.note=event.target.value;commit(before);};
 $("export").onclick=()=>{const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download="dram_det_v3.json";link.click();URL.revokeObjectURL(link.href);};

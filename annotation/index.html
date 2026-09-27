@@ -19,10 +19,15 @@
     <aside class="left-panel">
       <section>
         <h2>定位</h2>
-        <div class="nav-row"><button id="prev">←</button><input id="jump" placeholder="序号或 image_0.jpg"><button id="next">→</button></div>
+        <div class="nav-row"><button id="prev">←</button><input id="jump" placeholder="筛选序号或 image_0.jpg"><button id="next">→</button></div>
         <p id="position"></p>
         <div class="image-filters">
-          <label class="filter"><input type="checkbox" id="only-pending-review"> 仅显示待复核图片（标注状态）</label>
+          <label class="filter-select" for="review-filter">按待复核状态筛选</label>
+          <select id="review-filter" aria-label="按待复核状态筛选">
+            <option value="all">全部图片</option>
+            <option value="usability_review">可诊断性：待复核</option>
+            <option value="annotation_pending">标注复核：未完成</option>
+          </select>
           <label class="filter-select" for="filter-class">按图片缺陷类别筛选</label>
           <select id="filter-class" aria-label="按图片缺陷类别筛选"></select>
           <label class="filter"><input type="checkbox" id="only-review-sample"> 仅看抽取复核集</label>
