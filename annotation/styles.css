@@ -12,6 +12,12 @@ main { display:grid; grid-template-columns:270px minmax(400px,1fr) 285px; height
 aside { background:var(--panel); overflow:auto; padding:12px; } .left-panel { border-right:1px solid var(--line); } .right-panel { border-left:1px solid var(--line); }
 aside section { border-bottom:1px solid var(--line); padding:8px 0 14px; margin-bottom:12px; }
 .nav-row { display:grid; grid-template-columns:38px 1fr 38px; gap:6px; } input,select,textarea { padding:8px; width:100%; }
+.image-filters { display:grid; gap:7px; margin-top:10px; padding:10px; border:1px solid var(--line); border-radius:6px; background:#0e1720; }
+.image-filters .filter { display:flex; align-items:center; gap:6px; cursor:pointer; }
+.image-filters input[type="checkbox"] { width:auto; margin:0; }
+.filter-select { color:#b9c8d8; font-size:12px; }
+.image-filters select { min-width:0; }
+.image-filters .panel-help { margin:0; }
 .class-list { display:grid; gap:6px; } .class-btn { text-align:left; display:grid; grid-template-columns:18px 24px minmax(0,1fr) auto; align-items:center; gap:2px; }
 .class-count { color:#9fc8ec; font-size:11px; white-space:nowrap; }
 .swatch { width:12px; height:12px; border-radius:3px; } .wide { width:100%; margin-top:8px; }
@@ -26,6 +32,8 @@ aside section { border-bottom:1px solid var(--line); padding:8px 0 14px; margin-
 .workspace { min-width:0; display:flex; flex-direction:column; background:#070b10; }
 .canvas-toolbar { height:42px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 12px; color:var(--muted); border-bottom:1px solid var(--line); }
 #canvas-wrap { flex:1; min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden; padding:12px; }
+#filter-empty { max-width:340px; padding:24px; color:var(--muted); text-align:center; line-height:1.6; }
+#filter-empty[hidden], canvas[hidden] { display:none; }
 canvas { max-width:100%; max-height:100%; background:#000; box-shadow:0 0 0 1px #263342; cursor:crosshair; }
 .hint { padding:7px 12px; color:var(--muted); border-top:1px solid var(--line); font-size:12px; }
 .object-list { display:grid; gap:6px; } .object-row { padding:8px; border:1px solid var(--line); border-radius:6px; cursor:pointer; }

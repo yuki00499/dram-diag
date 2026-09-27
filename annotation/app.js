@@ -38,13 +38,14 @@ function commit(before) {
   if (undoStack.length > 200) undoStack.shift();
   redoStack = [];
   persistLocal();
-  renderAll();
+  refreshVisibleImage();
 }
 
 function applyHistory(entry, side) {
   payload.images[entry.name] = clone(entry[side]);
-  if (entry.name === currentName()) { selected = null; renderAll(); }
+  if (entry.name === currentName()) selected = null;
   persistLocal();
+  refreshVisibleImage();
 }
 
 function undo() { const item = undoStack.pop(); if (!item) return; applyHistory(item, "before"); redoStack.push(item); }
@@ -72,20 +73,88 @@ function buildControls() {
     button.onclick = () => { const before = clone(record()); record().usability = value; commit(before); };
     usability.appendChild(button);
   });
+  const classFilter = $("filter-class"); classFilter.innerHTML = "";
+  const filterOptions = [
+    {value: "all", label: "全部类别"},
+    {value: "none", label: "无缺陷框"},
+    ...config.taxonomy.object_classes.map(item => ({value: String(item.id), label: item.name_zh})),
+  ];
+  filterOptions.forEach(item => {
+    const option = document.createElement("option");
+    option.value = item.value; option.dataset.label = item.label; option.textContent = item.label;
+    classFilter.appendChild(option);
+  });
+}
+
+function pendingReview(row) { return !row || row.review?.status !== "reviewed"; }
+function baseFilterMatches(name) {
+  const row = payload.images[name];
+  return (!$("only-pending-review").checked || pendingReview(row))
+    && (!$("only-review-sample").checked || (config.review_sample || []).includes(name));
+}
+function classFilterMatches(row, selectedValue) {
+  if (selectedValue === "all") return true;
+  if (selectedValue === "none") return !row?.objects?.length;
+  return !!row?.objects?.some(obj => Number(obj.class_id) === Number(selectedValue));
+}
+function filteredIndices() {
+  const selectedValue = $("filter-class").value;
+  return config.images.flatMap((name, index) =>
+    baseFilterMatches(name) && classFilterMatches(payload.images[name], selectedValue) ? [index] : []);
+}
+function updateFilterUi() {
+  const baseNames = config.images.filter(baseFilterMatches), counts = new Map();
+  let emptyCount = 0;
+  baseNames.forEach(name => {
+    const objects = payload.images[name]?.objects || [];
+    if (!objects.length) emptyCount++;
+    new Set(objects.map(obj => Number(obj.class_id))).forEach(id => counts.set(id, (counts.get(id) || 0) + 1));
+  });
+  const selectedValue = $("filter-class").value;
+  Array.from($("filter-class").options).forEach(option => {
+    const count = option.value === "all" ? baseNames.length : option.value === "none" ? emptyCount : counts.get(Number(option.value)) || 0;
+    option.textContent = `${option.dataset.label}（${count} 张）`;
+    option.disabled = count === 0 && option.value !== selectedValue;
+    option.hidden = count === 0 && option.value !== "all" && option.value !== selectedValue;
+  });
+  const matches = filteredIndices(), rank = matches.indexOf(position);
+  $("filter-summary").textContent = `当前筛选 ${matches.length} / ${config.total} 张；一张多标签图片会出现在每个对应类别中。${$("only-pending-review").checked ? "待复核包括未复核、主标完成和存在争议。" : ""}`;
+  $("position").textContent = rank < 0 ? `筛选结果 ${matches.length} 张` : `筛选 ${rank + 1} / ${matches.length} · 全部 ${position + 1} / ${config.total}`;
+  $("prev").disabled = $("next").disabled = matches.length === 0;
+  return matches;
+}
+function refreshVisibleImage() {
+  const matches = updateFilterUi();
+  if (!matches.length) {
+    image = null;
+    canvas.hidden = true;
+    $("filter-empty").hidden = false;
+    $("image-name").textContent = "无符合筛选的图片";
+    renderStats();
+    return;
+  }
+  $("filter-empty").hidden = true;
+  canvas.hidden = false;
+  if (!matches.includes(position)) {
+    position = matches.find(index => index > position) ?? matches[0];
+    loadImage();
+  } else if (image?.complete) renderAll();
+  else loadImage();
 }
 
 function loadImage() {
   selected = null; pointerAction = null;
-  image = new Image();
-  image.onload = () => {
+  const nextImage = new Image(); image = nextImage;
+  nextImage.onload = () => {
+    if (image !== nextImage) return;
     const name = currentName();
-    if (!payload.images[name]) payload.images[name] = emptyRecord(image.naturalWidth, image.naturalHeight);
-    canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+    if (!payload.images[name]) payload.images[name] = emptyRecord(nextImage.naturalWidth, nextImage.naturalHeight);
+    canvas.width = nextImage.naturalWidth; canvas.height = nextImage.naturalHeight;
     renderAll();
   };
-  image.src = `/api/annotation/image/${encodeURIComponent(currentName())}`;
+  nextImage.src = `/api/annotation/image/${encodeURIComponent(currentName())}`;
   $("image-name").textContent = currentName();
-  $("position").textContent = `${position + 1} / ${config.total}`;
+  updateFilterUi();
 }
 
 function renderCanvas() {
@@ -107,6 +176,7 @@ function drawBox(box, color, label, active, dashed=false) {
 }
 
 function renderAll() {
+  updateFilterUi();
   if (!image?.complete) return;
   const classCounts = activeObjects().reduce((counts, obj) => counts.set(Number(obj.class_id), (counts.get(Number(obj.class_id)) || 0) + 1), new Map());
   document.querySelectorAll(".class-btn").forEach(button => {
@@ -151,8 +221,9 @@ function renderObjects() {
 function renderStats() {
   const records = Object.values(payload.images), objects = records.reduce((sum,row)=>sum+(row.objects?.length||0),0);
   const reviewed = records.filter(row => ["reviewed","primary_complete"].includes(row.review?.status)).length;
+  const pending = records.filter(pendingReview).length;
   const secondary = records.reduce((sum,row)=>sum+(row.review?.secondary_objects?.length||0),0);
-  $("stats").innerHTML = `<span>已打开/总数</span><strong>${records.length}/${config.total}</strong><span>主标框</span><strong>${objects}</strong><span>盲复核框</span><strong>${secondary}</strong><span>已审/主标完成</span><strong>${reviewed}</strong><span>争议区域</span><strong>${records.reduce((s,r)=>s+(r.ignore_regions?.length||0),0)}</strong>`;
+  $("stats").innerHTML = `<span>已打开/总数</span><strong>${records.length}/${config.total}</strong><span>主标框</span><strong>${objects}</strong><span>盲复核框</span><strong>${secondary}</strong><span>待复核图片</span><strong>${pending}</strong><span>已审/主标完成</span><strong>${reviewed}</strong><span>争议区域</span><strong>${records.reduce((s,r)=>s+(r.ignore_regions?.length||0),0)}</strong>`;
 }
 
 function point(event) { const rect=canvas.getBoundingClientRect(); return [
@@ -192,18 +263,19 @@ canvas.addEventListener("pointerup", () => {
 
 function PathStem(name){ return name.replace(/\.[^.]+$/,""); }
 function removeSelected(){ if(!selected)return; const before=clone(record()); selected.kind==="object"?activeObjects().splice(selected.index,1):activeIgnores().splice(selected.index,1);selected=null;commit(before); }
-function navigate(delta){ let next=position; for(let tries=0;tries<config.total;tries++){ next=(next+delta+config.total)%config.total; const name=config.images[next], row=payload.images[name]; const statusOk=!$("only-unreviewed").checked || !row || row.review?.status==="unreviewed"; const sampleOk=!$("only-review-sample").checked || (config.review_sample||[]).includes(name); if(statusOk&&sampleOk) break; } position=next;loadImage(); }
+function navigate(delta){ const matches=updateFilterUi(); if(!matches.length)return; const rank=matches.indexOf(position); position=matches[(rank<0?(delta>0?0:matches.length-1):rank+delta+matches.length)%matches.length]; loadImage(); }
 function escapeHtml(value){ const div=document.createElement("div");div.textContent=String(value??"");return div.innerHTML; }
 
 $("prev").onclick=()=>navigate(-1); $("next").onclick=()=>navigate(1); $("undo").onclick=undo; $("redo").onclick=redo;
+$("only-pending-review").onchange=refreshVisibleImage; $("only-review-sample").onchange=refreshVisibleImage; $("filter-class").onchange=refreshVisibleImage;
 $("blind-review").onclick=()=>{blindReview=!blindReview;selected=null;pointerAction=null;renderAll();};
 $("ignore-mode").onclick=()=>{ignoreMode=!ignoreMode;selected=null;renderAll();}; $("show-labels").onchange=renderCanvas;
-$("jump").onkeydown=event=>{if(event.key!=="Enter")return;const raw=event.target.value.trim();let index=/^\d+$/.test(raw)?Number(raw)-1:config.images.indexOf(raw);if(index>=0&&index<config.total){position=index;loadImage();event.target.value="";}};
+$("jump").onkeydown=event=>{if(event.key!=="Enter")return;const raw=event.target.value.trim();let index=/^\d+$/.test(raw)?Number(raw)-1:config.images.indexOf(raw);if(index>=0&&index<config.total){if(!filteredIndices().includes(index)){message("该图片不在当前筛选结果中，请调整筛选条件。",true);return;}position=index;loadImage();event.target.value="";}};
 $("review-status").onchange=event=>{const before=clone(record());record().review=record().review||{};record().review.status=event.target.value;commit(before);};
 $("review-note").onchange=event=>{const before=clone(record());record().review=record().review||{};record().review.note=event.target.value;commit(before);};
 $("export").onclick=()=>{const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"}),link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download="dram_det_v3.json";link.click();URL.revokeObjectURL(link.href);};
 $("import").onclick=()=>$("import-file").click();
-$("import-file").onchange=event=>{const file=event.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const value=JSON.parse(reader.result);if(value.schema_version!==3||value.taxonomy_sha256!==taxonomyHash())throw new Error("协议或类别哈希不匹配");payload=value;persistLocal();loadImage();message(`已导入 ${Object.keys(payload.images||{}).length} 张`);}catch(error){message(error.message,true);}};reader.readAsText(file);};
+$("import-file").onchange=event=>{const file=event.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const value=JSON.parse(reader.result);if(value.schema_version!==3||value.taxonomy_sha256!==taxonomyHash())throw new Error("协议或类别哈希不匹配");payload=value;persistLocal();refreshVisibleImage();message(`已导入 ${Object.keys(payload.images||{}).length} 张`);}catch(error){message(error.message,true);}};reader.readAsText(file);};
 $("save").onclick=async()=>{try{const response=await fetch("/api/annotation/state",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({payload})});const result=await response.json();if(!response.ok)throw new Error(JSON.stringify(result.detail));message(`已保存，${result.warnings?.length||0} 条警告`);}catch(error){message(error.message,true);}};
 function message(value,danger=false){$("messages").textContent=value;$("messages").classList.toggle("danger",danger);}
 document.addEventListener("keydown",event=>{if(["INPUT","TEXTAREA","SELECT"].includes(event.target.tagName))return;if(event.ctrlKey&&event.key.toLowerCase()==="z"){event.preventDefault();undo();}else if(event.ctrlKey&&event.key.toLowerCase()==="y"){event.preventDefault();redo();}else if(event.key==="Delete")removeSelected();else if(event.key==="ArrowRight")navigate(1);else if(event.key==="ArrowLeft")navigate(-1);else if(event.key.toLowerCase()==="i"){ignoreMode=!ignoreMode;selected=null;renderAll();}else if(/^\d$/.test(event.key)){const item=config.taxonomy.object_classes[Number(event.key)-1];if(item){selectedClass=Number(item.id);ignoreMode=false;renderAll();}}});
@@ -226,5 +298,5 @@ Promise.all([fetch("/api/annotation/config").then(r=>r.json()),fetch("/api/annot
   payload.images=payload.images||{}; payload.taxonomy_sha256=taxonomyHash();
   persistLocal();
   $("taxonomy-state").textContent=`taxonomy ${config.taxonomy.status} · ${config.taxonomy.object_classes.length} 类 · ${config.total} 张`;
-  buildControls();loadImage();
+  buildControls();refreshVisibleImage();
 }).catch(error=>message("初始化失败："+error.message,true));

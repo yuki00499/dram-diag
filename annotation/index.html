@@ -21,6 +21,13 @@
         <h2>定位</h2>
         <div class="nav-row"><button id="prev">←</button><input id="jump" placeholder="序号或 image_0.jpg"><button id="next">→</button></div>
         <p id="position"></p>
+        <div class="image-filters">
+          <label class="filter"><input type="checkbox" id="only-pending-review"> 仅显示待复核图片（标注状态）</label>
+          <label class="filter-select" for="filter-class">按图片缺陷类别筛选</label>
+          <select id="filter-class" aria-label="按图片缺陷类别筛选"></select>
+          <label class="filter"><input type="checkbox" id="only-review-sample"> 仅看抽取复核集</label>
+          <p id="filter-summary" class="panel-help" aria-live="polite"></p>
+        </div>
       </section>
       <section>
         <h2>缺陷类别（同图可多类）</h2>
@@ -45,7 +52,7 @@
         <label><input type="checkbox" id="show-labels" checked> 显示标签</label>
         <span id="mode-label">选择类别后拖动画框</span>
       </div>
-      <div id="canvas-wrap"><canvas id="canvas"></canvas></div>
+      <div id="canvas-wrap"><canvas id="canvas"></canvas><div id="filter-empty" hidden>当前筛选条件下没有图片。请选择其他类别或关闭筛选。</div></div>
       <div class="hint">同一图片可画多个类别：选择类别 → 画框 → 换类别 → 继续画框。拖动框内移动；拖动四角调整；Delete 删除；Ctrl+Z/Y 撤销/重做；←/→ 切图。
       </div>
     </section>
@@ -68,8 +75,6 @@
       <section>
         <h2>数据进度</h2>
         <div id="stats"></div>
-        <label class="filter"><input type="checkbox" id="only-unreviewed"> 导航时仅看未复核</label>
-        <label class="filter"><input type="checkbox" id="only-review-sample"> 仅看抽取复核集</label>
       </section>
       <section id="messages" class="messages"></section>
     </aside>
