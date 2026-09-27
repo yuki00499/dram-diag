@@ -23,7 +23,7 @@ test("pending review class filter counts multi-label images and skips reviewed i
     {value: "1", dataset: {label: "细长颗粒"}},
   ];
   const context = vm.createContext({
-    document: {getElementById: element, addEventListener() {}},
+    document: {getElementById: element, addEventListener() {}, querySelectorAll: () => []},
     window: {addEventListener() {}},
     fetch: () => new Promise(() => {}),
   });
@@ -40,6 +40,7 @@ test("pending review class filter counts multi-label images and skips reviewed i
     position = 0;
     image = {complete: true};
     renderAll = () => {};
+    renderFilterResults = () => {};
     loadImage = () => {};
   `, context);
 
@@ -56,6 +57,8 @@ test("pending review class filter counts multi-label images and skips reviewed i
   element("review-filter").value = "usability_review";
   element("filter-class").value = "1";
   assert.deepEqual(Array.from(vm.runInContext("filteredIndices()", context)), [1]);
+  vm.runInContext("applyFilterChange()", context);
+  assert.equal(vm.runInContext("position", context), 1);
   element("review-filter").value = "annotation_pending";
   element("filter-class").value = "0";
 
@@ -65,6 +68,10 @@ test("pending review class filter counts multi-label images and skips reviewed i
 
   element("filter-class").value = "none";
   assert.deepEqual(Array.from(vm.runInContext("filteredIndices()", context)), [2]);
+  element("review-filter").value = "annotation_primary_complete";
+  vm.runInContext("applyFilterChange()", context);
+  assert.equal(vm.runInContext("position", context), 2);
+  assert.equal(element("filter-results-panel").open, true);
   element("only-review-sample").checked = true;
   vm.runInContext("refreshVisibleImage()", context);
   assert.equal(element("filter-empty").hidden, false);

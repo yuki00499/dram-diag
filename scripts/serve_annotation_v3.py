@@ -35,6 +35,13 @@ def create_app(taxonomy_path="configs/taxonomy_v3.yaml",
         (path.name for path in image_root.iterdir() if path.suffix.lower() in {".jpg", ".jpeg", ".png"}),
         key=lambda name: int(Path(name).stem.split("_")[-1]))
 
+    @app.middleware("http")
+    async def disable_ui_cache(request, call_next):
+        response = await call_next(request)
+        if request.url.path in {"/", "/index.html", "/app.js", "/styles.css"}:
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.get("/api/annotation/config")
     def config():
         review_sample = []

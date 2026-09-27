@@ -18,6 +18,12 @@ aside section { border-bottom:1px solid var(--line); padding:8px 0 14px; margin-
 .filter-select { color:#b9c8d8; font-size:12px; }
 .image-filters select { min-width:0; }
 .image-filters .panel-help { margin:0; }
+.image-filters > button { width:100%; }
+.image-filters summary { cursor:pointer; color:#b9c8d8; font-size:12px; }
+.filter-results { display:grid; gap:4px; max-height:180px; overflow:auto; margin-top:7px; }
+.filter-result { width:100%; padding:5px 7px; text-align:left; font-size:12px; }
+.filter-result.active { background:#1269b0; border-color:#58afff; }
+#filter-summary { color:#c5dfff; }
 .class-list { display:grid; gap:6px; } .class-btn { text-align:left; display:grid; grid-template-columns:18px 24px minmax(0,1fr) auto; align-items:center; gap:2px; }
 .class-count { color:#9fc8ec; font-size:11px; white-space:nowrap; }
 .swatch { width:12px; height:12px; border-radius:3px; } .wide { width:100%; margin-top:8px; }

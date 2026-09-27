@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>DRAM v3 缺陷框标注</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=review-filters-2">
 </head>
 <body>
   <header>
@@ -12,6 +12,7 @@
     <div class="header-actions">
       <button id="undo">撤销</button><button id="redo">重做</button>
       <button id="import">导入</button><button id="export">导出</button>
+      <button id="restore-draft" hidden>恢复浏览器草稿</button>
       <button id="save" class="primary">保存到项目</button>
     </div>
   </header>
@@ -27,11 +28,17 @@
             <option value="all">全部图片</option>
             <option value="usability_review">可诊断性：待复核</option>
             <option value="annotation_pending">标注复核：未完成</option>
+            <option value="annotation_unreviewed">标注复核：未复核</option>
+            <option value="annotation_primary_complete">标注复核：主标完成</option>
+            <option value="annotation_disputed">标注复核：存在争议</option>
+            <option value="annotation_reviewed">标注复核：复核通过</option>
           </select>
           <label class="filter-select" for="filter-class">按图片缺陷类别筛选</label>
           <select id="filter-class" aria-label="按图片缺陷类别筛选"></select>
           <label class="filter"><input type="checkbox" id="only-review-sample"> 仅看抽取复核集</label>
           <p id="filter-summary" class="panel-help" aria-live="polite"></p>
+          <button id="clear-filters" type="button">清除筛选</button>
+          <details id="filter-results-panel"><summary id="filter-results-title">匹配图片列表</summary><div id="filter-results" class="filter-results"></div></details>
         </div>
       </section>
       <section>
@@ -85,6 +92,6 @@
     </aside>
   </main>
   <input id="import-file" type="file" accept="application/json" hidden>
-  <script src="app.js"></script>
+  <script src="app.js?v=review-filters-2"></script>
 </body>
 </html>

@@ -2,9 +2,11 @@
 
 const $ = id => document.getElementById(id);
 const STORAGE_KEY = "dram_det_v3_annotations";
+const RECOVERY_KEY = `${STORAGE_KEY}_recovery`;
 const COLORS = ["#ff6b6b", "#ffad42", "#ffe66d", "#65d18a", "#42d4c7", "#4aa3ff", "#a98bff", "#f17bd3"];
 let config, payload, image, position = 0, selectedClass = null, ignoreMode = false;
 let selected = null, pointerAction = null, undoStack = [], redoStack = [], blindReview = false;
+let recoverableDraft = null;
 const canvas = $("canvas"), ctx = canvas.getContext("2d");
 
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
@@ -84,15 +86,24 @@ function buildControls() {
     option.value = item.value; option.dataset.label = item.label; option.textContent = item.label;
     classFilter.appendChild(option);
   });
+  const sampleFilter = $("only-review-sample");
+  const sampleCount = (config.review_sample || []).length;
+  sampleFilter.disabled = sampleCount === 0;
+  if (!sampleCount) sampleFilter.checked = false;
+  sampleFilter.parentElement.title = sampleCount ? `复核抽样集共 ${sampleCount} 张` : "尚未生成复核抽样清单";
 }
 
 function pendingReview(row) { return !row || row.review?.status !== "reviewed"; }
+function reviewFilterMatches(row, filter) {
+  if (filter === "usability_review") return row?.usability === "review";
+  if (filter === "annotation_pending") return pendingReview(row);
+  if (filter.startsWith("annotation_")) return (row?.review?.status || "unreviewed") === filter.slice("annotation_".length);
+  return true;
+}
 function baseFilterMatches(name) {
   const row = payload.images[name];
-  const reviewFilter = $("review-filter").value;
-  const statusMatches = reviewFilter === "usability_review" ? row?.usability === "review"
-    : reviewFilter === "annotation_pending" ? pendingReview(row) : true;
-  return statusMatches && (!$("only-review-sample").checked || (config.review_sample || []).includes(name));
+  return reviewFilterMatches(row, $("review-filter").value)
+    && (!$("only-review-sample").checked || (config.review_sample || []).includes(name));
 }
 function classFilterMatches(row, selectedValue) {
   if (selectedValue === "all") return true;
@@ -108,14 +119,12 @@ function updateFilterUi() {
   const selectedClass = $("filter-class").value;
   const sampleNames = config.images.filter(name => !$("only-review-sample").checked || (config.review_sample || []).includes(name));
   const statusCandidates = sampleNames.filter(name => classFilterMatches(payload.images[name], selectedClass));
-  const statusCounts = {
-    all: statusCandidates.length,
-    usability_review: statusCandidates.filter(name => payload.images[name]?.usability === "review").length,
-    annotation_pending: statusCandidates.filter(name => pendingReview(payload.images[name])).length,
-  };
-  const statusLabels = {all: "全部图片", usability_review: "可诊断性：待复核", annotation_pending: "标注复核：未完成"};
+  const statusLabels = {all: "全部图片", usability_review: "可诊断性：待复核", annotation_pending: "标注复核：未完成",
+    annotation_unreviewed: "标注复核：未复核", annotation_primary_complete: "标注复核：主标完成",
+    annotation_disputed: "标注复核：存在争议", annotation_reviewed: "标注复核：复核通过"};
   Array.from($("review-filter").options).forEach(option => {
-    option.textContent = `${statusLabels[option.value]}（${statusCounts[option.value]} 张）`;
+    const count = statusCandidates.filter(name => reviewFilterMatches(payload.images[name], option.value)).length;
+    option.textContent = `${statusLabels[option.value]}（${count} 张）`;
   });
   const baseNames = config.images.filter(baseFilterMatches), counts = new Map();
   let emptyCount = 0;
@@ -132,25 +141,54 @@ function updateFilterUi() {
     option.hidden = count === 0 && option.value !== "all" && option.value !== selectedValue;
   });
   const matches = filteredIndices(), rank = matches.indexOf(position);
-  const reviewHint = $("review-filter").value === "usability_review" ? "可诊断性为待复核。"
-    : $("review-filter").value === "annotation_pending" ? "标注状态为未复核、主标完成或存在争议。" : "";
-  $("filter-summary").textContent = `当前筛选 ${matches.length} / ${config.total} 张。${reviewHint}多标签图片会出现在每个对应类别中。`;
+  $("filter-summary").textContent = `当前筛选 ${matches.length} / ${config.total} 张；多标签图片会出现在每个对应类别中。`;
+  $("filter-results-title").textContent = `匹配图片列表（${matches.length} 张）`;
+  renderFilterResults(matches, rank);
   $("position").textContent = rank < 0 ? `筛选结果 ${matches.length} 张` : `筛选 ${rank + 1} / ${matches.length} · 全部 ${position + 1} / ${config.total}`;
   $("prev").disabled = $("next").disabled = matches.length === 0;
   return matches;
+}
+function renderFilterResults(matches, rank) {
+  const target = $("filter-results"); target.innerHTML = "";
+  const start = Math.max(0, Math.min(Math.max(rank, 0) - 3, matches.length - 7));
+  matches.slice(start, start + 7).forEach((index, offset) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `filter-result${index === position ? " active" : ""}`;
+    button.textContent = `${start + offset + 1}. ${config.images[index]}`;
+    button.onclick = () => { position = index; loadImage(); };
+    target.appendChild(button);
+  });
+}
+function setAnnotationEnabled(enabled) {
+  $("review-status").disabled = !enabled;
+  $("review-note").disabled = !enabled;
+  document.querySelectorAll("#usability button").forEach(button => button.disabled = !enabled);
+  $("ignore-mode").disabled = !enabled;
+  document.querySelectorAll(".class-btn").forEach(button => button.disabled = !enabled);
+}
+function applyFilterChange() {
+  const matches = updateFilterUi();
+  $("filter-results-panel").open = true;
+  if (!matches.length) { refreshVisibleImage(); return; }
+  position = matches[0];
+  loadImage();
 }
 function refreshVisibleImage() {
   const matches = updateFilterUi();
   if (!matches.length) {
     image = null;
     canvas.hidden = true;
+    $("filter-empty").textContent = "当前筛选条件下没有图片。请选择其他类别或关闭筛选。";
     $("filter-empty").hidden = false;
     $("image-name").textContent = "无符合筛选的图片";
+    $("objects").textContent = "当前筛选没有图片";
+    setAnnotationEnabled(false);
     renderStats();
     return;
   }
   $("filter-empty").hidden = true;
-  canvas.hidden = false;
+  setAnnotationEnabled(true);
   if (!matches.includes(position)) {
     position = matches.find(index => index > position) ?? matches[0];
     loadImage();
@@ -161,15 +199,28 @@ function refreshVisibleImage() {
 function loadImage() {
   selected = null; pointerAction = null;
   const nextImage = new Image(); image = nextImage;
+  const name = currentName();
+  canvas.hidden = true;
+  $("filter-empty").hidden = true;
+  $("image-name").textContent = `加载中：${name}`;
+  $("objects").textContent = "正在加载图片…";
+  setAnnotationEnabled(false);
   nextImage.onload = () => {
     if (image !== nextImage) return;
-    const name = currentName();
     if (!payload.images[name]) payload.images[name] = emptyRecord(nextImage.naturalWidth, nextImage.naturalHeight);
     canvas.width = nextImage.naturalWidth; canvas.height = nextImage.naturalHeight;
+    canvas.hidden = false;
+    $("image-name").textContent = name;
+    setAnnotationEnabled(true);
     renderAll();
   };
-  nextImage.src = `/api/annotation/image/${encodeURIComponent(currentName())}`;
-  $("image-name").textContent = currentName();
+  nextImage.onerror = () => {
+    if (image !== nextImage) return;
+    $("image-name").textContent = `无法加载 ${name}`;
+    $("filter-empty").textContent = `图片 ${name} 加载失败，请检查标注服务。`;
+    $("filter-empty").hidden = false;
+  };
+  nextImage.src = `/api/annotation/image/${encodeURIComponent(name)}`;
   updateFilterUi();
 }
 
@@ -284,7 +335,9 @@ function navigate(delta){ const matches=updateFilterUi(); if(!matches.length)ret
 function escapeHtml(value){ const div=document.createElement("div");div.textContent=String(value??"");return div.innerHTML; }
 
 $("prev").onclick=()=>navigate(-1); $("next").onclick=()=>navigate(1); $("undo").onclick=undo; $("redo").onclick=redo;
-$("review-filter").onchange=refreshVisibleImage; $("only-review-sample").onchange=refreshVisibleImage; $("filter-class").onchange=refreshVisibleImage;
+$("review-filter").onchange=applyFilterChange; $("only-review-sample").onchange=applyFilterChange; $("filter-class").onchange=applyFilterChange;
+$("clear-filters").onclick=()=>{$("review-filter").value="all";$("filter-class").value="all";$("only-review-sample").checked=false;position=0;$("filter-results-panel").open=false;loadImage();};
+$("restore-draft").onclick=()=>{try{const draft=recoverableDraft||JSON.parse(localStorage.getItem(RECOVERY_KEY));if(draft.taxonomy_sha256!==taxonomyHash())throw new Error("类别哈希不匹配");payload=draft;persistLocal();$("restore-draft").hidden=true;refreshVisibleImage();message("已恢复浏览器草稿；保存到项目前请核对标注内容。");}catch(error){message(`无法恢复草稿：${error.message}`,true);}};
 $("blind-review").onclick=()=>{blindReview=!blindReview;selected=null;pointerAction=null;renderAll();};
 $("ignore-mode").onclick=()=>{ignoreMode=!ignoreMode;selected=null;renderAll();}; $("show-labels").onchange=renderCanvas;
 $("jump").onkeydown=event=>{if(event.key!=="Enter")return;const raw=event.target.value.trim(),matches=filteredIndices();const index=/^\d+$/.test(raw)?matches[Number(raw)-1]:config.images.indexOf(raw);if(index==null||index<0||!matches.includes(index)){message(`当前筛选共 ${matches.length} 张；请输入筛选序号或范围内的图片名。`,true);return;}position=index;loadImage();event.target.value="";};
@@ -302,16 +355,23 @@ Promise.all([fetch("/api/annotation/config").then(r=>r.json()),fetch("/api/annot
   config=cfg; const local=localStorage.getItem(STORAGE_KEY); payload=server;
   if(local){try{
     const candidate=JSON.parse(local);
-    if(candidate.taxonomy_sha256===taxonomyHash()&&Object.keys(candidate.images||{}).length>=Object.keys(server.images||{}).length){
-      const bulkChange=(server.change_log||[]).find(entry=>entry.action==="bulk_usability_review_to_usable");
-      const alreadyApplied=(candidate.change_log||[]).some(entry=>entry.action===bulkChange?.action&&entry.source_file_sha256===bulkChange?.source_file_sha256);
-      if(bulkChange&&!alreadyApplied){
-        Object.values(candidate.images||{}).forEach(row=>{if(row.usability==="review")row.usability="usable";});
-        candidate.change_log=[...(candidate.change_log||[]),bulkChange];
+    if(candidate.taxonomy_sha256===taxonomyHash()&&JSON.stringify(candidate.images||{})!==JSON.stringify(server.images||{})){
+      try{localStorage.setItem(RECOVERY_KEY,local);}
+      catch(_){
+        // Never overwrite the only copy of an unsaved draft if browser storage is full.
+        payload=candidate;
+        message("浏览器空间不足，已保留本地草稿；请立即导出并核对项目标注文件。",true);
       }
-      payload=candidate;
     }
   }catch(_) {}}
+  try{
+    const backup=JSON.parse(localStorage.getItem(RECOVERY_KEY));
+    if(payload===server&&backup?.taxonomy_sha256===taxonomyHash()&&JSON.stringify(backup.images||{})!==JSON.stringify(server.images||{})){
+      recoverableDraft=backup;
+      $("restore-draft").hidden=false;
+      message("已载入项目标注文件；检测到不同的浏览器草稿，可点击上方按钮恢复。",true);
+    }
+  }catch(_) {}
   payload.images=payload.images||{}; payload.taxonomy_sha256=taxonomyHash();
   persistLocal();
   $("taxonomy-state").textContent=`taxonomy ${config.taxonomy.status} · ${config.taxonomy.object_classes.length} 类 · ${config.total} 张`;
