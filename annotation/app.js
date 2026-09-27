@@ -211,8 +211,20 @@ window.addEventListener("resize",renderCanvas);
 
 Promise.all([fetch("/api/annotation/config").then(r=>r.json()),fetch("/api/annotation/state").then(r=>r.json())]).then(([cfg,server])=>{
   config=cfg; const local=localStorage.getItem(STORAGE_KEY); payload=server;
-  if(local){try{const candidate=JSON.parse(local);if(candidate.taxonomy_sha256===taxonomyHash()&&Object.keys(candidate.images||{}).length>=Object.keys(server.images||{}).length)payload=candidate;}catch(_) {}}
+  if(local){try{
+    const candidate=JSON.parse(local);
+    if(candidate.taxonomy_sha256===taxonomyHash()&&Object.keys(candidate.images||{}).length>=Object.keys(server.images||{}).length){
+      const bulkChange=(server.change_log||[]).find(entry=>entry.action==="bulk_usability_review_to_usable");
+      const alreadyApplied=(candidate.change_log||[]).some(entry=>entry.action===bulkChange?.action&&entry.source_file_sha256===bulkChange?.source_file_sha256);
+      if(bulkChange&&!alreadyApplied){
+        Object.values(candidate.images||{}).forEach(row=>{if(row.usability==="review")row.usability="usable";});
+        candidate.change_log=[...(candidate.change_log||[]),bulkChange];
+      }
+      payload=candidate;
+    }
+  }catch(_) {}}
   payload.images=payload.images||{}; payload.taxonomy_sha256=taxonomyHash();
+  persistLocal();
   $("taxonomy-state").textContent=`taxonomy ${config.taxonomy.status} · ${config.taxonomy.object_classes.length} 类 · ${config.total} 张`;
   buildControls();loadImage();
 }).catch(error=>message("初始化失败："+error.message,true));
