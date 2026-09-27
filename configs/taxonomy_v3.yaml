@@ -1,14 +1,14 @@
 schema_version: 3
-status: draft
+status: frozen
 description: >-
-  DRAM SEM v3 类别定义源。以下六类为试标候选类别，必须由领域人员在100张试标后审批；
-  在 status 改为 frozen 之前，数据导出和正式训练命令将拒绝运行。
+  DRAM SEM v3 类别定义源。项目所有者确认按当前六类标注体系冻结；
+  线状表面异常与局部面状表面异常保持独立类别。若后续合并，须建立新协议版本。
 object_classes:
   - id: 0
     slug: rounded_particle
     name_zh: 近圆形颗粒
     name_en: Rounded Particle
-    approval_status: candidate
+    approval_status: owner_approved
     definition: >-
       独立的颗粒状对象，整体轮廓近圆或短椭圆，无明显长轴、直边和尖角。
       不称为 Spherical Particle，因为二维图像不能确认球形。
@@ -22,7 +22,7 @@ object_classes:
     slug: elongated_particle
     name_zh: 细长颗粒
     name_en: Elongated Particle
-    approval_status: candidate
+    approval_status: owner_approved
     definition: >-
       独立颗粒有明显长轴，呈棒状、针状或长椭圆状，能够辨认其端部和侧边。
     boundary_rule: >-
@@ -35,7 +35,7 @@ object_classes:
     slug: angular_particle
     name_zh: 棱角状颗粒
     name_en: Angular Particle
-    approval_status: candidate
+    approval_status: owner_approved
     definition: >-
       独立颗粒具有清楚的直边、尖角或多边形轮廓；不限于方形，
       也不据此认定其为晶体。
@@ -49,7 +49,7 @@ object_classes:
     slug: irregular_particle
     name_zh: 不规则颗粒
     name_en: Irregular Particle
-    approval_status: candidate
+    approval_status: owner_approved
     definition: >-
       可辨认的独立颗粒状对象，轮廓呈不规则块状、多叶状或团簇状，
       不符合近圆形、细长或棱角状颗粒定义。不用本类收纳所有看不清的对象。
@@ -63,7 +63,7 @@ object_classes:
     slug: linear_surface_anomaly
     name_zh: 线状表面异常
     name_en: Linear Surface Anomaly
-    approval_status: candidate
+    approval_status: owner_approved
     definition: >-
       以线或窄带为主的非正常表面特征，可呈连续、断续或弯曲形态；
       暂不强行区分划痕、裂纹与沟槽。
@@ -77,7 +77,7 @@ object_classes:
     slug: localized_surface_anomaly
     name_zh: 局部面状表面异常
     name_en: Localized Surface Anomaly
-    approval_status: candidate
+    approval_status: owner_approved
     definition: >-
       以局部二维区域为主体，呈坑状、片状缺损或明显边界包围的异常区域；
       暂不认定为内部空洞、腐蚀或分层。
