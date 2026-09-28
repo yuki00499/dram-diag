@@ -10,6 +10,8 @@ artifacts/**/*.npz
 artifacts/**/*.png
 artifacts/**/*.html
 artifacts/labeling/
+artifacts/dram_det_v3/yolo/
+artifacts/dram_det_v3/yolo_spotcheck_*.md
 runs/
 *.pt
 legacy/

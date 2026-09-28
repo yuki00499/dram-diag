@@ -32,20 +32,22 @@ python scripts\serve_annotation_v3.py --port 8011
 # 主标完成后生成分层 20% 盲复核清单；稀有类、争议与审计异常自动全选
 python scripts\select_detection_review.py
 
-# 2. 审计并冻结源 JSON（冻结文件拒绝原地覆盖）
-python scripts\audit_detection_dataset.py
-python scripts\audit_detection_dataset.py --freeze-out annotations\dram_det_v3.frozen.json
+# 2. r2 源标注已审计并冻结；不要覆盖现有冻结文件
+# 当前文件：annotations\dram_det_v3.r2.frozen.json
 
-# 3. 生成新种子的 10% 测试隔离与 5 折 development，然后导出某一折
-python scripts\build_detection_protocol.py --annotations annotations\dram_det_v3.frozen.json
-python scripts\export_detection_dataset.py --fold 0
+# 3. r2 的 10% 测试隔离、5 折 development 和全部 YOLO 导出已生成
+# 当前目录：artifacts\dram_det_v3\yolo\r2\fold-0 至 fold-4
 
-# 4. 固定消融训练；其余配置依次替换为 b1/b2/b3
-python scripts\train_detection.py `
-  --config configs\experiments\dram_det_v3_b0.yaml `
-  --data artifacts\dram_det_v3\yolo\fold-0\data.yaml
+# 4. 先预检，再做 fold-0 的四变体短程冒烟（不会修改正式训练目录）
+python scripts\train_detection_matrix.py --folds 0 --epochs 1
+python scripts\train_detection_matrix.py --folds 0 --epochs 1 --execute
 
-# 5. 汇总四组结果并按预注册门槛判定是否保留创新
+# 5. 预检 20 个任务，再顺序执行 B0–B3 × 5 折；不会使用 test 指标调参
+python scripts\train_detection_matrix.py
+python scripts\train_detection_matrix.py --execute
+# 中断后可加 --skip-completed；只跳过 provenance、best/last 和哈希均验证通过的任务
+
+# 6. 汇总四组结果并按预注册门槛判定是否保留创新
 python scripts\evaluate_detection_ablations.py `
   --b0 <B0.json> --b1 <B1.json> --b2 <B2.json> --b3 <B3.json> `
   --classes <0,1,...> `

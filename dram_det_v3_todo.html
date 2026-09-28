@@ -148,10 +148,12 @@ python -m pip install -e . --no-build-isolation</code><button class="copy">复�
     <section class="card" id="phase-5">
       <div class="phase-head"><div class="phase-no">5</div><div><h2>最终审计并冻结源标注</h2><p>冻结后生成来源哈希、taxonomy 哈希和修改记录。</p></div></div>
       <div class="tasks">
-        <label class="task"><input type="checkbox"><div><div class="task-title">运行最终完整审计</div><div class="command"><code>python scripts\audit_detection_dataset.py</code><button class="copy">复制</button></div><div class="task-body">检查报告中的类别支持度、目标宽高/面积分布、640 输入下小目标比例和所有错误项。</div></div></label>
+        <label class="task"><input type="checkbox"><div><div class="task-title">运行最终完整审计</div><div class="command"><code>python scripts\audit_detection_dataset.py `
+  --report artifacts\dram_det_v3\annotation_audit_r2.json</code><button class="copy">复制</button></div><div class="task-body">当前 r2 审计已完成；检查类别支持度、目标宽高/面积分布、640 输入下小目标比例和所有错误项。</div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">冻结源标注文件</div><div class="command"><code>python scripts\audit_detection_dataset.py `
-  --freeze-out annotations\dram_det_v3.frozen.json</code><button class="copy">复制</button></div><div class="gate">只有 taxonomy 已 frozen、1150 张全部存在且审计零错误时才会成功。冻结文件拒绝覆盖。</div></div></label>
-        <label class="task"><input type="checkbox"><div><div class="task-title">归档冻结证据</div><div class="task-body">保存 <span class="tag">源标注 SHA-256</span><span class="tag">taxonomy SHA-256</span><span class="tag">change_log</span><span class="tag">annotation_audit.json</span>。</div></div></label>
+  --freeze-out annotations\dram_det_v3.r2.frozen.json `
+  --report artifacts\dram_det_v3\annotation_audit_r2_freeze.json</code><button class="copy">复制</button></div><div class="gate">r2 冻结文件已存在，勿重复运行或覆盖；旧冻结文件仍保留。</div></div></label>
+        <label class="task"><input type="checkbox"><div><div class="task-title">归档冻结证据</div><div class="task-body">保存 <span class="tag">源标注 SHA-256</span><span class="tag">taxonomy SHA-256</span><span class="tag">change_log</span><span class="tag">annotation_audit_r2.json</span>。</div></div></label>
       </div>
     </section>
 
@@ -159,11 +161,12 @@ python -m pip install -e . --no-build-isolation</code><button class="copy">复�
       <div class="phase-head"><div class="phase-no">6</div><div><h2>生成 v3 测试隔离、5 折和 YOLO 派生数据</h2><p>同一图片的所有任务标签必须始终在同一划分。</p></div></div>
       <div class="tasks">
         <label class="task"><input type="checkbox"><div><div class="task-title">生成新种子的冻结划分</div><div class="command"><code>python scripts\build_detection_protocol.py `
-  --annotations annotations\dram_det_v3.frozen.json</code><button class="copy">复制</button></div><div class="task-body">输出约 10% 测试集和 5 折 development。此阶段不要查看测试集模型结果。</div></div></label>
+  --annotations annotations\dram_det_v3.r2.frozen.json `
+  --out artifacts\dram_det_v3\split_manifest_r2.json</code><button class="copy">复制</button></div><div class="task-body">r2 划分已生成，输出约 10% 测试集和 5 折 development。勿覆盖现有清单；此阶段不要查看测试集模型结果。</div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">逐折导出 YOLO 数据</div><div class="command"><code>0..4 | ForEach-Object {
-  python scripts\export_detection_dataset.py --fold $_
-}</code><button class="copy">复制</button></div><div class="task-body"><code>unusable/review/ignore</code> 图片只进入 <code>images/global</code>，不进入检测背景训练；可用无框图才是真负样本。</div></div></label>
-        <label class="task"><input type="checkbox"><div><div class="task-title">人工抽查导出结果</div><div class="task-body">随机检查像素框转 YOLO 归一化框、空标签文件、类别名称和 train/val/test 无泄漏。</div></div></label>
+  python scripts\export_detection_dataset.py --manifest artifacts\dram_det_v3\split_manifest_r2.json --fold $_ --out "artifacts\dram_det_v3\yolo\r2\fold-$_"
+}</code><button class="copy">复制</button></div><div class="task-body">r2 的 5 折已导出，勿覆盖现有目录。<code>unusable/review/ignore</code> 图片只进入 <code>images/global</code>，不进入检测背景训练。</div></div></label>
+        <label class="task"><input type="checkbox"><div><div class="task-title">人工抽查导出结果</div><div class="task-body">r2 五折已检查像素框转 YOLO 归一化框、空标签、类别名称和 train/val/test 无重叠；详见 <span class="path">artifacts/dram_det_v3/yolo_spotcheck_r2_20260928.md</span>。</div></div></label>
       </div>
     </section>
 
@@ -171,11 +174,10 @@ python -m pip install -e . --no-build-isolation</code><button class="copy">复�
       <div class="phase-head"><div class="phase-no">7</div><div><h2>训练固定 B0–B3 消融矩阵</h2><p>先做小规模冒烟，再启动全部 5 折。</p></div></div>
       <div class="tasks">
         <label class="task"><input type="checkbox"><div><div class="task-title">确认训练配置不再修改</div><div class="task-body"><span class="tag">B0 原生 YOLO26s</span><span class="tag">B1 + P2</span><span class="tag">B2 + 层级一致性</span><span class="tag">B3 + P2 + 层级一致性</span></div></div></label>
-        <label class="task"><input type="checkbox"><div><div class="task-title">每个变体先训练 fold 0 做冒烟检查</div><div class="command"><code>python scripts\train_detection.py `
-  --config configs\experiments\dram_det_v3_b0.yaml `
-  --data artifacts\dram_det_v3\yolo\fold-0\data.yaml
-# 将 b0 依次替换为 b1、b2、b3</code><button class="copy">复制</button></div><div class="task-body">确认显存、自适应 batch、loss、P2 尺度和层级头均正常，再启动长训练。</div></div></label>
-        <label class="task"><input type="checkbox"><div><div class="task-title">完成 4 个变体 × 5 折训练</div><div class="task-body">共 20 个训练任务。每次保留 <code>v3_provenance.json</code>、best/last checkpoint、配置哈希和预训练权重哈希。</div></div></label>
+        <label class="task"><input type="checkbox"><div><div class="task-title">每个变体先训练 fold 0 做冒烟检查</div><div class="command"><code>python scripts\train_detection_matrix.py --folds 0 --epochs 1
+python scripts\train_detection_matrix.py --folds 0 --epochs 1 --execute</code><button class="copy">复制</button></div><div class="task-body">第一行只预检；第二行顺序执行 B0–B3 的独立命名短程任务。确认显存、自适应 batch、loss、P2 尺度和层级头正常后，再启动完整训练。</div></div></label>
+        <label class="task"><input type="checkbox"><div><div class="task-title">完成 4 个变体 × 5 折训练</div><div class="command"><code>python scripts\train_detection_matrix.py
+python scripts\train_detection_matrix.py --execute</code><button class="copy">复制</button></div><div class="task-body">第一行只预检 20 项，第二行才顺序训练。中断后可加 <code>--skip-completed</code> 跳过经哈希核验的完整任务；不完整目录需人工处理。每次保留 <code>v3_provenance.json</code>、best/last checkpoint、配置哈希和预训练权重哈希。</div></div></label>
         <label class="task"><input type="checkbox"><div><div class="task-title">生成 development/OOF 预测记录</div><div class="task-body">每张 development 图像只能使用其所属验证折的模型预测。记录框、整图概率、可诊断概率、复核分数、延迟和显存；不要使用 test_known 调阈值。</div></div></label>
       </div>
     </section>
